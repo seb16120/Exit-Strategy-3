@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Exit Strategy 3 — a local two-player abstract strategy game.">
+  <meta name="theme-color" content="#17191d">
+  <title>Exit Strategy 3</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">LOCAL 1 VS 1</p>
+      <h1>Exit Strategy 3</h1>
+    </div>
+    <button id="rulesButton" class="icon-button" type="button" aria-haspopup="dialog">Rules</button>
+  </header>
+
+  <main class="app-shell">
+    <section class="game-column" aria-label="Game board">
+      <div id="phaseCard" class="phase-card" aria-live="polite"></div>
+
+      <div id="boardFrame" class="board-frame" hidden>
+        <div class="coordinate-row" aria-hidden="true">
+          <span></span><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span>
+        </div>
+        <div class="board-and-rows">
+          <div class="coordinate-column" aria-hidden="true">
+            <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span>
+          </div>
+          <div id="board" class="board" role="grid" aria-label="Exit Strategy 3 board"></div>
+        </div>
+      </div>
+
+      <div id="setupControls" class="setup-controls" hidden>
+        <div>
+          <h2>Pieces to place</h2>
+          <div id="reserve" class="reserve" aria-label="Piece reserve"></div>
+        </div>
+        <div class="setup-actions">
+          <button id="returnPieceButton" class="secondary-button" type="button" disabled>Return selected piece</button>
+          <button id="restartSetupButton" class="secondary-button" type="button">Restart placement</button>
+          <button id="lockSetupButton" class="primary-button" type="button" disabled>Lock setup</button>
+        </div>
+      </div>
+    </section>
+
+    <aside id="sidePanel" class="side-panel" hidden>
+      <section class="score-card">
+        <div class="score-row cyan-score">
+          <div><strong>Player 1</strong><span>Cyan</span></div>
+          <div><span>Escaped <b id="cyanEscaped">0</b>/2</span><span>Captured <b id="cyanCaptured">0</b>/3</span></div>
+        </div>
+        <div class="score-row magenta-score">
+          <div><strong>Player 2</strong><span>Magenta</span></div>
+          <div><span>Escaped <b id="magentaEscaped">0</b>/2</span><span>Captured <b id="magentaCaptured">0</b>/3</span></div>
+        </div>
+        <div class="turn-counter"><span>Turns</span><strong id="turnCounter">0 / 100</strong></div>
+      </section>
+
+      <section class="settings-card">
+        <h2>Options</h2>
+        <label class="toggle-row">
+          <span>Confirm moves</span>
+          <input id="confirmMoves" type="checkbox">
+        </label>
+        <label class="toggle-row">
+          <span>Show coordinates</span>
+          <input id="showCoordinates" type="checkbox">
+        </label>
+      </section>
+
+      <section class="history-card">
+        <h2>Move history</h2>
+        <ol id="history" class="history"></ol>
+      </section>
+    </aside>
+  </main>
+
+  <dialog id="passDialog" class="modal">
+    <div class="modal-body">
+      <p class="eyebrow">PASS THE DEVICE</p>
+      <h2 id="passTitle"></h2>
+      <p id="passText"></p>
+      <button id="passContinueButton" class="primary-button" type="button">Continue</button>
+    </div>
+  </dialog>
+
+  <dialog id="confirmDialog" class="modal">
+    <form method="dialog" class="modal-body">
+      <p class="eyebrow">CONFIRM MOVE</p>
+      <h2 id="confirmTitle">Play this move?</h2>
+      <p id="confirmText"></p>
+      <div class="dialog-actions">
+        <button value="cancel" class="secondary-button">Cancel</button>
+        <button id="confirmMoveButton" value="confirm" class="primary-button">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="resultDialog" class="modal">
+    <div class="modal-body">
+      <p class="eyebrow">GAME OVER</p>
+      <h2 id="resultTitle"></h2>
+      <p id="resultText"></p>
+      <button id="newGameButton" class="primary-button" type="button">New game</button>
+    </div>
+  </dialog>
+
+  <dialog id="rulesDialog" class="modal rules-modal">
+    <form method="dialog" class="modal-body">
+      <div class="rules-heading">
+        <div><p class="eyebrow">HOW TO PLAY</p><h2>Rules</h2></div>
+        <button class="icon-button" value="close" aria-label="Close rules">Close</button>
+      </div>
+      <div class="rules-copy">
+        <h3>Win</h3>
+        <p>Win by getting two of your five numbered pawns out through the central exit, or by having your Hunter capture three opposing pawns.</p>
+        <h3>Numbered pawns</h3>
+        <p>A pawn moves horizontally or vertically as far as possible. It stops on the last empty square before a wall or any piece. Pawns never capture.</p>
+        <p>The exit is intangible: crossing it does nothing. A pawn exits only when the central exit is its forced final square.</p>
+        <h3>Hunter</h3>
+        <p>The Hunter moves exactly one square horizontally or vertically. It cannot enter the exit, land on a friendly pawn, or land on the opposing Hunter. It captures by entering a square occupied by an opposing pawn.</p>
+        <h3>Setup and turns</h3>
+        <p>The choice maker is drawn at random and chooses to play first or second. The first player becomes Player 1 (cyan), sets up first, and takes the first turn. Both setups remain secret until the simultaneous reveal.</p>
+        <h3>Draws</h3>
+        <p>The game is drawn after two consecutive forced passes, the third occurrence of the same position, or 100 turns total (50 per player).</p>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="src/game.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>

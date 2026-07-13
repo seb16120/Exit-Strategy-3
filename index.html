@@ -3,13 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="Exit Strategy 3 — an abstract strategy game for local play, versus CPU1 or CPU3, and CPU matches.">
+  <meta name="description" content="Exit Strategy 3 — an abstract strategy game for local play, versus CPU1, CPU3 or CPU+, and CPU matches.">
   <meta name="theme-color" content="#17191d">
   <title>Exit Strategy 3</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="cpu.css">
   <link rel="stylesheet" href="last-move.css">
   <link rel="stylesheet" href="advanced.css">
+  <link rel="stylesheet" href="cpuplus.css">
 </head>
 <body>
   <header class="site-header">
@@ -79,6 +80,11 @@
         </div>
       </section>
 
+      <section id="gameActions" class="game-actions" hidden>
+        <h2>Game actions</h2>
+        <button id="abandonButton" class="danger-button" type="button">Abandon game</button>
+      </section>
+
       <section class="settings-card">
         <h2>Options</h2>
         <label class="toggle-row">
@@ -89,6 +95,10 @@
           <span>Show coordinates</span>
           <input id="showCoordinates" type="checkbox">
         </label>
+        <div class="learning-settings">
+          <div><strong>CPU+ placement learning</strong><small id="learningSummary">0 placements · 0 recorded results</small></div>
+          <button id="resetLearningButton" class="secondary-button compact-button" type="button">Reset</button>
+        </div>
       </section>
 
       <section class="history-card">
@@ -115,6 +125,36 @@
       <div class="dialog-actions">
         <button value="cancel" class="secondary-button">Cancel</button>
         <button id="confirmMoveButton" value="confirm" class="primary-button">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="abandonDialog" class="modal">
+    <div class="modal-body">
+      <p class="eyebrow">ABANDON GAME</p>
+      <h2>Why are you stopping?</h2>
+      <p>The reason determines whether CPU+ may learn from this game.</p>
+      <div class="stacked-dialog-actions">
+        <button id="abandonLoseButton" class="danger-button" type="button">I was going to lose</button>
+        <button id="abandonLeaveButton" class="secondary-button" type="button">I have to leave</button>
+        <button id="abandonCancelButton" class="text-button" type="button">Cancel</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="resetLearningDialog" class="modal">
+    <form id="resetLearningForm" class="modal-body">
+      <p class="eyebrow">PROTECTED RESET</p>
+      <h2>Reset CPU+ learning?</h2>
+      <p id="resetLearningStats"></p>
+      <label class="password-field">
+        <span>Password</span>
+        <input id="resetLearningPassword" type="password" inputmode="numeric" autocomplete="off" required>
+      </label>
+      <p id="resetLearningError" class="form-error" aria-live="polite"></p>
+      <div class="dialog-actions">
+        <button id="resetLearningCancelButton" class="secondary-button" type="button">Cancel</button>
+        <button class="danger-button" type="submit">Reset local data</button>
       </div>
     </form>
   </dialog>
@@ -148,10 +188,14 @@
         <p>CPU1 uses a random legal setup and checks the opponent's immediately available replies before moving.</p>
         <h3>CPU3</h3>
         <p>CPU3 uses a scored logical setup and searches three plies: CPU move, opponent reply, CPU reply. It thinks for at least one second and no longer than 45 seconds.</p>
+        <h3>CPU+</h3>
+        <p>CPU+ deepens its minimax search for at least 30 seconds and at most 55 seconds. It may move after one second when it has only one legal move or a move wins the game immediately. Its setup receives five extra seconds of analysis and uses local, weighted placement results.</p>
         <h3>CPU vs CPU</h3>
-        <p>Select CPU1 or CPU3 independently for Player 1 and Player 2. The match can be paused, resumed, or advanced one move at a time.</p>
+        <p>Select CPU1, CPU3 or CPU+ independently for Player 1 and Player 2. The match can be paused, resumed, or advanced one move at a time.</p>
         <h3>Timed game</h3>
         <p>When enabled, each move has a one-minute limit and each player has 50 minutes total. The confirmation dialog does not pause the clock. A forced pass immediately consumes one full minute from that player's total.</p>
+        <h3>Abandoning</h3>
+        <p>“I was going to lose” awards the opponent a win and may be used by CPU+ learning. “I have to leave” ends the game without recording a result.</p>
         <h3>Draws</h3>
         <p>The game is drawn after two consecutive forced passes, the third occurrence of the same position, or 100 turns total (50 per player).</p>
       </div>
@@ -163,8 +207,9 @@
   <script src="src/game.js"></script>
   <script src="src/cpu.js"></script>
   <script src="src/cpu3.js"></script>
+  <script src="src/cpuplus.js"></script>
   <script src="src/timer.js"></script>
-  <script src="src/app.js"></script>
+  <script src="src/app-v2.js"></script>
   <script src="src/last-move.js"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@ self.onmessage = (event) => {
       self.ExitStrategyGame,
       owner,
       pieces,
-      { maxDepth, maxTimeMs }
+      { maxDepth, maxTimeMs: Math.min(maxTimeMs, 44000) }
     );
     self.postMessage({ ok: true, result });
   } catch (error) {

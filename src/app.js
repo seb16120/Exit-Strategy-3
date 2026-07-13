@@ -2,6 +2,7 @@
   'use strict';
 
   const Game = window.ExitStrategyGame;
+  const CPU = window.ExitStrategyCPU;
   const $ = (selector) => document.querySelector(selector);
 
   const elements = {
@@ -14,6 +15,10 @@
     restartSetupButton: $('#restartSetupButton'),
     lockSetupButton: $('#lockSetupButton'),
     sidePanel: $('#sidePanel'),
+    cyanPlayerName: $('#cyanPlayerName'),
+    cyanPlayerIdentity: $('#cyanPlayerIdentity'),
+    magentaPlayerName: $('#magentaPlayerName'),
+    magentaPlayerIdentity: $('#magentaPlayerIdentity'),
     cyanEscaped: $('#cyanEscaped'),
     cyanCaptured: $('#cyanCaptured'),
     magentaEscaped: $('#magentaEscaped'),
@@ -23,12 +28,12 @@
     confirmMoves: $('#confirmMoves'),
     showCoordinates: $('#showCoordinates'),
     passDialog: $('#passDialog'),
+    passEyebrow: $('#passEyebrow'),
     passTitle: $('#passTitle'),
     passText: $('#passText'),
     passContinueButton: $('#passContinueButton'),
     confirmDialog: $('#confirmDialog'),
     confirmText: $('#confirmText'),
-    confirmMoveButton: $('#confirmMoveButton'),
     resultDialog: $('#resultDialog'),
     resultTitle: $('#resultTitle'),
     resultText: $('#resultText'),
@@ -40,13 +45,18 @@
 
   const storedConfirm = localStorage.getItem('exit-strategy-confirm-moves');
   const defaultConfirm = window.matchMedia('(pointer: coarse)').matches;
+  let scheduledTimer = null;
 
   const state = {
-    phase: 'choice',
+    phase: 'mode',
+    mode: null,
     choiceMaker: null,
-    identities: { A: 'Player A', B: 'Player B' },
+    identities: {},
     roleByPerson: {},
     personByOwner: {},
+    humanOwner: null,
+    cpuOwner: null,
+    cpuThinking: false,
     pieces: Game.createPieces(),
     setupOwner: null,
     selectedPieceId: null,
@@ -63,6 +73,12 @@
     finished: false
   };
 
+  function clearScheduledAction() {
+    window.clearTimeout(scheduledTimer);
+    scheduledTimer = null;
+    state.cpuThinking = false;
+  }
+
   function ownerLabel(owner) {
     return owner === 'cyan' ? 'Player 1 (Cyan)' : 'Player 2 (Magenta)';
   }
@@ -73,6 +89,10 @@
 
   function pieceLabel(piece) {
     return piece.type === 'hunter' ? 'Hunter' : `Pawn ${piece.number}`;
+  }
+
+  function isCpuOwner(owner) {
+    return state.mode === 'cpu' && owner === state.cpuOwner;
   }
 
   function createBoard() {
@@ -103,10 +123,15 @@
   }
 
   function resetGame() {
-    state.phase = 'choice';
+    clearScheduledAction();
+    state.phase = 'mode';
+    state.mode = null;
     state.choiceMaker = null;
+    state.identities = {};
     state.roleByPerson = {};
     state.personByOwner = {};
+    state.humanOwner = null;
+    state.cpuOwner = null;
     state.pieces = Game.createPieces();
     state.setupOwner = null;
     state.selectedPieceId = null;
@@ -120,6 +145,27 @@
     state.pendingMove = null;
     state.finished = false;
     if (elements.resultDialog.open) elements.resultDialog.close();
+    if (elements.passDialog.open) elements.passDialog.close();
+    if (elements.confirmDialog.open) elements.confirmDialog.close();
+    render();
+  }
+
+  function startMode(mode) {
+    clearScheduledAction();
+    state.mode = mode;
+    state.phase = 'choice';
+    state.choiceMaker = null;
+    state.pieces = Game.createPieces();
+    state.roleByPerson = {};
+    state.personByOwner = {};
+    state.humanOwner = null;
+    state.cpuOwner = null;
+    state.setupOwner = null;
+    state.selectedPieceId = null;
+    state.nextPawnNumber = { cyan: 1, magenta: 1 };
+    state.identities = mode === 'cpu'
+      ? { human: 'You', cpu: 'Basic CPU' }
+      : { A: 'Player A', B: 'Player B' };
     render();
   }
 
@@ -132,11 +178,27 @@
 
   function renderPhaseCard() {
     const card = elements.phaseCard;
+
+    if (state.phase === 'mode') {
+      card.innerHTML = `
+        <p class="eyebrow">CHOOSE A MODE</p>
+        <h2>How do you want to play?</h2>
+        <p>Play locally against another person, or face a Basic CPU that checks every legal reply one move ahead.</p>
+        <div class="choice-actions">
+          <button id="localModeButton" class="primary-button" type="button">Local 1 vs 1</button>
+          <button id="cpuModeButton" class="secondary-button" type="button">Vs. Basic CPU</button>
+        </div>`;
+      $('#localModeButton').addEventListener('click', () => startMode('local'));
+      $('#cpuModeButton').addEventListener('click', () => startMode('cpu'));
+      return;
+    }
+
     if (state.phase === 'choice') {
+      const participants = state.mode === 'cpu' ? 'you or the CPU' : 'one of the two players';
       card.innerHTML = `
         <p class="eyebrow">STEP 1 · TURN ORDER</p>
         <h2>Draw the choice maker</h2>
-        <p>The chosen person decides whether to play first or second. The first player becomes Player 1 and uses cyan.</p>
+        <p>The system selects ${participants}. The choice maker decides whether to play first or second. Whoever plays first becomes Player 1 and uses cyan.</p>
         <div class="choice-actions"><button id="drawChoiceButton" class="primary-button" type="button">Draw choice maker</button></div>`;
       $('#drawChoiceButton').addEventListener('click', drawChoiceMaker);
       return;
@@ -153,6 +215,22 @@
         </div>`;
       $('#chooseFirstButton').addEventListener('click', () => assignRoles(true));
       $('#chooseSecondButton').addEventListener('click', () => assignRoles(false));
+      return;
+    }
+
+    if (state.phase === 'cpu-choice') {
+      card.innerHTML = `
+        <p class="eyebrow">CPU CHOICE MAKER</p>
+        <h2>Basic CPU is choosing</h2>
+        <p class="thinking-line"><span class="thinking-dot"></span>The CPU will choose first or second.</p>`;
+      return;
+    }
+
+    if (state.phase === 'cpu-setup') {
+      card.innerHTML = `
+        <p class="eyebrow">SECRET SETUP</p>
+        <h2>Basic CPU is placing its pieces</h2>
+        <p class="thinking-line"><span class="thinking-dot"></span>The CPU setup remains hidden until the reveal.</p>`;
       return;
     }
 
@@ -173,12 +251,13 @@
     }
 
     if (state.phase === 'play') {
+      const cpuTurn = isCpuOwner(state.currentOwner);
       card.innerHTML = `
         <div class="turn-banner">
           <span class="turn-dot ${state.currentOwner}"></span>
           <div><p class="eyebrow">CURRENT TURN</p><h2>${ownerLabel(state.currentOwner)} — ${personLabel(state.currentOwner)}</h2></div>
         </div>
-        <p>Select one of your pieces, then select a highlighted destination.</p>`;
+        <p>${cpuTurn ? '<span class="thinking-line"><span class="thinking-dot"></span>Basic CPU is checking every legal reply one move ahead.</span>' : 'Select one of your pieces, then select a highlighted destination.'}</p>`;
     }
   }
 
@@ -236,13 +315,13 @@
   }
 
   function canSelectPiece(piece) {
-    if (state.phase === 'setup') return piece.owner === state.setupOwner;
-    return state.phase === 'play' && !state.finished && piece.owner === state.currentOwner;
+    if (state.phase === 'setup') return piece.owner === state.setupOwner && !isCpuOwner(piece.owner);
+    return state.phase === 'play' && !state.finished && !isCpuOwner(state.currentOwner) && piece.owner === state.currentOwner;
   }
 
   function renderSetupControls() {
-    elements.setupControls.hidden = state.phase !== 'setup';
-    if (state.phase !== 'setup') return;
+    elements.setupControls.hidden = state.phase !== 'setup' || isCpuOwner(state.setupOwner);
+    if (elements.setupControls.hidden) return;
 
     const owner = state.setupOwner;
     const selected = Game.getPiece(state.pieces, state.selectedPieceId);
@@ -277,6 +356,11 @@
   function renderSidePanel() {
     elements.sidePanel.hidden = state.phase !== 'play';
     if (state.phase !== 'play') return;
+
+    elements.cyanPlayerName.textContent = 'Player 1';
+    elements.magentaPlayerName.textContent = 'Player 2';
+    elements.cyanPlayerIdentity.textContent = state.personByOwner.cyan || 'Cyan';
+    elements.magentaPlayerIdentity.textContent = state.personByOwner.magenta || 'Magenta';
     elements.cyanEscaped.textContent = Game.escapedCount('cyan', state.pieces);
     elements.cyanCaptured.textContent = Game.captureCount('cyan', state.pieces);
     elements.magentaEscaped.textContent = Game.escapedCount('magenta', state.pieces);
@@ -292,17 +376,51 @@
   }
 
   function drawChoiceMaker() {
-    state.choiceMaker = Math.random() < 0.5 ? 'A' : 'B';
-    state.phase = 'choose-order';
+    if (state.mode === 'local') {
+      state.choiceMaker = Math.random() < 0.5 ? 'A' : 'B';
+      state.phase = 'choose-order';
+      render();
+      return;
+    }
+
+    state.choiceMaker = Math.random() < 0.5 ? 'human' : 'cpu';
+    if (state.choiceMaker === 'human') {
+      state.phase = 'choose-order';
+      render();
+      return;
+    }
+
+    state.phase = 'cpu-choice';
+    state.cpuThinking = true;
     render();
+    scheduledTimer = window.setTimeout(() => {
+      state.cpuThinking = false;
+      assignRoles(Math.random() < 0.5);
+    }, 1000);
   }
 
   function assignRoles(choiceMakerWantsFirst) {
-    const otherPerson = state.choiceMaker === 'A' ? 'B' : 'A';
+    const otherPerson = state.mode === 'cpu'
+      ? (state.choiceMaker === 'human' ? 'cpu' : 'human')
+      : (state.choiceMaker === 'A' ? 'B' : 'A');
     const firstPerson = choiceMakerWantsFirst ? state.choiceMaker : otherPerson;
-    const secondPerson = firstPerson === 'A' ? 'B' : 'A';
+    const secondPerson = firstPerson === (state.mode === 'cpu' ? 'human' : 'A')
+      ? (state.mode === 'cpu' ? 'cpu' : 'B')
+      : (state.mode === 'cpu' ? 'human' : 'A');
+
     state.roleByPerson = { [firstPerson]: 'cyan', [secondPerson]: 'magenta' };
     state.personByOwner = { cyan: state.identities[firstPerson], magenta: state.identities[secondPerson] };
+
+    if (state.mode === 'cpu') {
+      state.humanOwner = state.roleByPerson.human;
+      state.cpuOwner = state.roleByPerson.cpu;
+      if (state.cpuOwner === 'cyan') {
+        beginCpuSetup('cyan');
+      } else {
+        beginSetup('cyan');
+      }
+      return;
+    }
 
     state.phase = 'handoff';
     render();
@@ -320,6 +438,32 @@
     render();
   }
 
+  function beginCpuSetup(owner) {
+    state.phase = 'cpu-setup';
+    state.setupOwner = owner;
+    state.selectedPieceId = null;
+    state.cpuThinking = true;
+    render();
+    scheduledTimer = window.setTimeout(() => {
+      CPU.createRandomSetup(Game, owner, state.pieces);
+      state.nextPawnNumber[owner] = 6;
+      state.cpuThinking = false;
+      if (owner === 'cyan') {
+        beginSetup('magenta');
+      } else {
+        state.phase = 'handoff';
+        render();
+        showPassDialog(
+          'Both setups are locked',
+          'The CPU setup is ready. Reveal the board and begin the game.',
+          startPlay,
+          'Reveal board',
+          'READY TO PLAY'
+        );
+      }
+    }, 1000);
+  }
+
   function onCellClick(coord) {
     if (state.phase === 'setup') {
       handleSetupCell(coord);
@@ -329,6 +473,7 @@
   }
 
   function handleSetupCell(coord) {
+    if (isCpuOwner(state.setupOwner)) return;
     const clickedPiece = Game.pieceAt(state.pieces, coord);
     if (clickedPiece && clickedPiece.owner === state.setupOwner) {
       state.selectedPieceId = clickedPiece.id === state.selectedPieceId ? null : clickedPiece.id;
@@ -377,8 +522,26 @@
 
   function lockSetup() {
     if (!Game.validateSetup(state.setupOwner, state.pieces)) return;
-    state.phase = 'handoff';
     state.selectedPieceId = null;
+
+    if (state.mode === 'cpu') {
+      if (state.setupOwner === 'cyan') {
+        beginCpuSetup('magenta');
+      } else {
+        state.phase = 'handoff';
+        render();
+        showPassDialog(
+          'Both setups are locked',
+          'The CPU setup is ready. Reveal the board and begin the game.',
+          startPlay,
+          'Reveal board',
+          'READY TO PLAY'
+        );
+      }
+      return;
+    }
+
+    state.phase = 'handoff';
     render();
     if (state.setupOwner === 'cyan') {
       showPassDialog(
@@ -413,7 +576,7 @@
   }
 
   function handlePlayCell(coord) {
-    if (state.finished) return;
+    if (state.finished || isCpuOwner(state.currentOwner)) return;
     const clickedPiece = Game.pieceAt(state.pieces, coord);
     if (clickedPiece && clickedPiece.owner === state.currentOwner) {
       state.selectedPieceId = clickedPiece.id === state.selectedPieceId ? null : clickedPiece.id;
@@ -438,6 +601,7 @@
 
   function executeMove(move) {
     const piece = Game.getPiece(state.pieces, move.pieceId);
+    if (!piece) return;
     const movingOwner = piece.owner;
     const outcome = Game.applyMove(state.pieces, move);
     state.turnCount += 1;
@@ -446,6 +610,7 @@
     state.history.push(formatHistoryEntry(state.turnCount, piece, outcome));
     state.selectedPieceId = null;
     state.pendingMove = null;
+    state.cpuThinking = false;
 
     const win = Game.winner(state.pieces);
     if (win) {
@@ -471,7 +636,11 @@
 
   function processTurnStart() {
     if (state.finished || state.phase !== 'play') return;
-    if (Game.allLegalMoves(state.currentOwner, state.pieces).length > 0) return;
+    const legalMoves = Game.allLegalMoves(state.currentOwner, state.pieces);
+    if (legalMoves.length > 0) {
+      if (isCpuOwner(state.currentOwner)) scheduleCpuMove();
+      return;
+    }
 
     const passingOwner = state.currentOwner;
     state.turnCount += 1;
@@ -498,7 +667,19 @@
       return;
     }
     render();
-    window.setTimeout(processTurnStart, 650);
+    scheduledTimer = window.setTimeout(processTurnStart, 650);
+  }
+
+  function scheduleCpuMove() {
+    clearScheduledAction();
+    state.cpuThinking = true;
+    render();
+    scheduledTimer = window.setTimeout(() => {
+      if (state.finished || state.phase !== 'play' || !isCpuOwner(state.currentOwner)) return;
+      const move = CPU.chooseMove(Game, state.currentOwner, state.pieces);
+      state.cpuThinking = false;
+      if (move) executeMove(move);
+    }, 1000);
   }
 
   function recordPosition() {
@@ -516,29 +697,33 @@
   }
 
   function formatHistoryEntry(turn, piece, outcome) {
-    if (outcome.exits) return `${turn}. ${ownerLabel(piece.owner)} ${pieceLabel(piece)}: ${outcome.from} → EXIT`;
-    if (outcome.captured) return `${turn}. ${ownerLabel(piece.owner)} Hunter: ${outcome.from} × ${outcome.to} (${pieceLabel(outcome.captured)})`;
-    return `${turn}. ${ownerLabel(piece.owner)} ${pieceLabel(piece)}: ${outcome.from} → ${outcome.to}`;
+    const actor = state.mode === 'cpu' && piece.owner === state.cpuOwner ? 'Basic CPU' : ownerLabel(piece.owner);
+    if (outcome.exits) return `${turn}. ${actor} ${pieceLabel(piece)}: ${outcome.from} → EXIT`;
+    if (outcome.captured) return `${turn}. ${actor} Hunter: ${outcome.from} × ${outcome.to} (${pieceLabel(outcome.captured)})`;
+    return `${turn}. ${actor} ${pieceLabel(piece)}: ${outcome.from} → ${outcome.to}`;
   }
 
   function finishWithWinner(win) {
+    clearScheduledAction();
     state.finished = true;
     const reason = win.reason === 'escape'
       ? 'Two numbered pawns escaped through the central door.'
       : 'The Hunter captured three opposing pawns.';
-    elements.resultTitle.textContent = `${ownerLabel(win.owner)} wins`;
+    elements.resultTitle.textContent = `${personLabel(win.owner)} wins`;
     elements.resultText.textContent = reason;
     elements.resultDialog.showModal();
   }
 
   function finishDraw(reason) {
+    clearScheduledAction();
     state.finished = true;
     elements.resultTitle.textContent = 'Draw';
     elements.resultText.textContent = reason;
     elements.resultDialog.showModal();
   }
 
-  function showPassDialog(title, text, onContinue, buttonText = 'Continue') {
+  function showPassDialog(title, text, onContinue, buttonText = 'Continue', eyebrow = 'PASS THE DEVICE') {
+    elements.passEyebrow.textContent = eyebrow;
     elements.passTitle.textContent = title;
     elements.passText.textContent = text;
     elements.passContinueButton.textContent = buttonText;

@@ -3,15 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="Exit Strategy 3 — a local two-player abstract strategy game.">
+  <meta name="description" content="Exit Strategy 3 — an abstract strategy game for local play or versus a Basic CPU.">
   <meta name="theme-color" content="#17191d">
   <title>Exit Strategy 3</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="cpu.css">
 </head>
 <body>
   <header class="site-header">
     <div>
-      <p class="eyebrow">LOCAL 1 VS 1</p>
+      <p class="eyebrow">LOCAL OR VS. CPU</p>
       <h1>Exit Strategy 3</h1>
     </div>
     <button id="rulesButton" class="icon-button" type="button" aria-haspopup="dialog">Rules</button>
@@ -49,11 +50,11 @@
     <aside id="sidePanel" class="side-panel" hidden>
       <section class="score-card">
         <div class="score-row cyan-score">
-          <div><strong>Player 1</strong><span>Cyan</span></div>
+          <div><strong id="cyanPlayerName">Player 1</strong><span id="cyanPlayerIdentity">Cyan</span></div>
           <div><span>Escaped <b id="cyanEscaped">0</b>/2</span><span>Captured <b id="cyanCaptured">0</b>/3</span></div>
         </div>
         <div class="score-row magenta-score">
-          <div><strong>Player 2</strong><span>Magenta</span></div>
+          <div><strong id="magentaPlayerName">Player 2</strong><span id="magentaPlayerIdentity">Magenta</span></div>
           <div><span>Escaped <b id="magentaEscaped">0</b>/2</span><span>Captured <b id="magentaCaptured">0</b>/3</span></div>
         </div>
         <div class="turn-counter"><span>Turns</span><strong id="turnCounter">0 / 100</strong></div>
@@ -80,7 +81,7 @@
 
   <dialog id="passDialog" class="modal">
     <div class="modal-body">
-      <p class="eyebrow">PASS THE DEVICE</p>
+      <p id="passEyebrow" class="eyebrow">PASS THE DEVICE</p>
       <h2 id="passTitle"></h2>
       <p id="passText"></p>
       <button id="passContinueButton" class="primary-button" type="button">Continue</button>
@@ -124,6 +125,8 @@
         <p>The Hunter moves exactly one square horizontally or vertically. It cannot enter the exit, land on a friendly pawn, or land on the opposing Hunter. It captures by entering a square occupied by an opposing pawn.</p>
         <h3>Setup and turns</h3>
         <p>The choice maker is drawn at random and chooses to play first or second. The first player becomes Player 1 (cyan), sets up first, and takes the first turn. Both setups remain secret until the simultaneous reveal.</p>
+        <h3>Vs. Basic CPU</h3>
+        <p>The choice maker may be you or the CPU. Whoever plays first becomes Player 1 (cyan). The CPU uses a random legal secret setup, waits one second before acting, and evaluates every legal opponent reply on the immediately following turn.</p>
         <h3>Draws</h3>
         <p>The game is drawn after two consecutive forced passes, the third occurrence of the same position, or 100 turns total (50 per player).</p>
       </div>
@@ -133,6 +136,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="src/game.js"></script>
+  <script src="src/cpu.js"></script>
   <script src="src/app.js"></script>
 </body>
 </html>

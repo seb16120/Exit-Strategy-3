@@ -1,0 +1,33 @@
+.modal {
+  border-color: rgba(174, 181, 192, .38);
+  background: rgba(27, 30, 36, .78);
+  box-shadow: 0 30px 100px rgba(0,0,0,.58);
+  backdrop-filter: blur(12px) saturate(120%);
+}
+
+.modal::backdrop {
+  background: rgba(5,6,8,.48);
+  backdrop-filter: blur(1.5px);
+}
+
+.thinking-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+}
+
+.thinking-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 0 rgba(245,247,250,.38);
+  animation: thinking-pulse 1s infinite;
+}
+
+@keyframes thinking-pulse {
+  0% { opacity: .45; box-shadow: 0 0 0 0 rgba(245,247,250,.35); }
+  50% { opacity: 1; box-shadow: 0 0 0 7px rgba(245,247,250,0); }
+  100% { opacity: .45; box-shadow: 0 0 0 0 rgba(245,247,250,0); }
+}

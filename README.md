@@ -1,12 +1,17 @@
 # Exit Strategy 3
 
-A browser-based, local two-player adaptation of the abstract strategy game **Exit Strategy 3**.
+A browser-based adaptation of the abstract strategy game **Exit Strategy 3**, playable locally or against a Basic CPU.
 
 ## Play
 
-Open `index.html` locally, or use the GitHub Pages deployment after the V1 branch is merged into `main`.
+Open `index.html` locally, or use the GitHub Pages deployment from `main`.
 
 No framework, server, account, or build step is required.
+
+## Game modes
+
+- **Local 1 vs 1** keeps the original secret handoff setup.
+- **Vs. Basic CPU** randomly draws either the human or CPU as choice maker. Whoever plays first becomes Player 1 (cyan). The CPU uses a random legal secret setup, waits one second before moving, and applies a one-reply minimax check: for every candidate move, it simulates every legal opponent move on the immediately following turn.
 
 ## Rules
 

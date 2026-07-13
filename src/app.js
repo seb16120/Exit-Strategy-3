@@ -2,7 +2,9 @@
   'use strict';
 
   const Game = window.ExitStrategyGame;
-  const CPU = window.ExitStrategyCPU;
+  const CPU1 = window.ExitStrategyCPU;
+  const CPU3 = window.ExitStrategyCPU3;
+  const Timer = window.ExitStrategyTimer;
   const $ = (selector) => document.querySelector(selector);
 
   const elements = {
@@ -24,6 +26,13 @@
     magentaEscaped: $('#magentaEscaped'),
     magentaCaptured: $('#magentaCaptured'),
     turnCounter: $('#turnCounter'),
+    timerCard: $('#timerCard'),
+    moveClock: $('#moveClock'),
+    cyanTotalClock: $('#cyanTotalClock'),
+    magentaTotalClock: $('#magentaTotalClock'),
+    cpuControls: $('#cpuControls'),
+    cpuPauseButton: $('#cpuPauseButton'),
+    cpuNextButton: $('#cpuNextButton'),
     history: $('#history'),
     confirmMoves: $('#confirmMoves'),
     showCoordinates: $('#showCoordinates'),
@@ -45,18 +54,26 @@
 
   const storedConfirm = localStorage.getItem('exit-strategy-confirm-moves');
   const defaultConfirm = window.matchMedia('(pointer: coarse)').matches;
+
   let scheduledTimer = null;
+  let cpuDeadlineTimer = null;
+  let cpuWorker = null;
+  let clockInterval = null;
 
   const state = {
     phase: 'mode',
     mode: null,
+    timedGame: false,
     choiceMaker: null,
     identities: {},
     roleByPerson: {},
     personByOwner: {},
     humanOwner: null,
-    cpuOwner: null,
+    cpuByOwner: { cyan: null, magenta: null },
     cpuThinking: false,
+    cpuMatchPaused: false,
+    cpuStepOnce: false,
+    cpuDuelConfig: { cyan: 'cpu1', magenta: 'cpu3' },
     pieces: Game.createPieces(),
     setupOwner: null,
     selectedPieceId: null,
@@ -70,13 +87,38 @@
     pendingMove: null,
     confirmMoves: storedConfirm === null ? defaultConfirm : storedConfirm === 'true',
     showCoordinates: false,
-    finished: false
+    finished: false,
+    timer: Timer.createState(false)
   };
+
+  function dispatchLastMoveReset() {
+    window.dispatchEvent(new Event('exit-strategy:reset-last-move'));
+  }
+
+  function clearCpuSearch() {
+    window.clearTimeout(cpuDeadlineTimer);
+    cpuDeadlineTimer = null;
+    if (cpuWorker) {
+      cpuWorker.terminate();
+      cpuWorker = null;
+    }
+  }
 
   function clearScheduledAction() {
     window.clearTimeout(scheduledTimer);
     scheduledTimer = null;
+    clearCpuSearch();
     state.cpuThinking = false;
+  }
+
+  function stopClockInterval() {
+    window.clearInterval(clockInterval);
+    clockInterval = null;
+  }
+
+  function ensureClockInterval() {
+    if (!state.timedGame || clockInterval) return;
+    clockInterval = window.setInterval(tickClock, 200);
   }
 
   function ownerLabel(owner) {
@@ -91,8 +133,20 @@
     return piece.type === 'hunter' ? 'Hunter' : `Pawn ${piece.number}`;
   }
 
+  function cpuName(level) {
+    return level === 'cpu3' ? 'CPU3' : 'CPU1';
+  }
+
+  function cpuLevel(owner) {
+    return state.cpuByOwner[owner];
+  }
+
   function isCpuOwner(owner) {
-    return state.mode === 'cpu' && owner === state.cpuOwner;
+    return Boolean(cpuLevel(owner));
+  }
+
+  function isCpuDuel() {
+    return state.mode === 'cpu-duel';
   }
 
   function createBoard() {
@@ -122,16 +176,18 @@
     }
   }
 
-  function resetGame() {
+  function resetRuntimeState() {
     clearScheduledAction();
-    state.phase = 'mode';
-    state.mode = null;
+    stopClockInterval();
     state.choiceMaker = null;
     state.identities = {};
     state.roleByPerson = {};
     state.personByOwner = {};
     state.humanOwner = null;
-    state.cpuOwner = null;
+    state.cpuByOwner = { cyan: null, magenta: null };
+    state.cpuThinking = false;
+    state.cpuMatchPaused = false;
+    state.cpuStepOnce = false;
     state.pieces = Game.createPieces();
     state.setupOwner = null;
     state.selectedPieceId = null;
@@ -144,29 +200,65 @@
     state.history = [];
     state.pendingMove = null;
     state.finished = false;
+    Timer.reset(state.timer, state.timedGame);
+    dispatchLastMoveReset();
+  }
+
+  function resetGame() {
+    state.phase = 'mode';
+    state.mode = null;
+    state.timedGame = false;
+    resetRuntimeState();
     if (elements.resultDialog.open) elements.resultDialog.close();
     if (elements.passDialog.open) elements.passDialog.close();
     if (elements.confirmDialog.open) elements.confirmDialog.close();
     render();
   }
 
+  function setTimedGame(enabled) {
+    state.timedGame = Boolean(enabled);
+    Timer.reset(state.timer, state.timedGame);
+  }
+
   function startMode(mode) {
-    clearScheduledAction();
+    const timedGame = state.timedGame;
     state.mode = mode;
     state.phase = 'choice';
-    state.choiceMaker = null;
-    state.pieces = Game.createPieces();
-    state.roleByPerson = {};
-    state.personByOwner = {};
-    state.humanOwner = null;
-    state.cpuOwner = null;
-    state.setupOwner = null;
-    state.selectedPieceId = null;
-    state.nextPawnNumber = { cyan: 1, magenta: 1 };
-    state.identities = mode === 'cpu'
-      ? { human: 'You', cpu: 'Basic CPU' }
-      : { A: 'Player A', B: 'Player B' };
+    resetRuntimeState();
+    state.timedGame = timedGame;
+    Timer.reset(state.timer, timedGame);
+    if (mode === 'local') {
+      state.identities = { A: 'Player A', B: 'Player B' };
+    } else {
+      const level = mode === 'cpu3' ? 'cpu3' : 'cpu1';
+      state.identities = { human: 'You', cpu: cpuName(level) };
+    }
     render();
+  }
+
+  function openCpuDuelConfig() {
+    const timedGame = state.timedGame;
+    state.mode = 'cpu-duel';
+    state.phase = 'cpu-config';
+    resetRuntimeState();
+    state.timedGame = timedGame;
+    Timer.reset(state.timer, timedGame);
+    render();
+  }
+
+  function startCpuDuel() {
+    state.mode = 'cpu-duel';
+    state.personByOwner = {
+      cyan: cpuName(state.cpuDuelConfig.cyan),
+      magenta: cpuName(state.cpuDuelConfig.magenta)
+    };
+    state.cpuByOwner = {
+      cyan: state.cpuDuelConfig.cyan,
+      magenta: state.cpuDuelConfig.magenta
+    };
+    state.cpuMatchPaused = false;
+    state.cpuStepOnce = false;
+    beginCpuSetup('cyan');
   }
 
   function render() {
@@ -176,6 +268,20 @@
     renderSidePanel();
   }
 
+  function timedGameToggleMarkup() {
+    return `
+      <label class="mode-toggle">
+        <input id="timedGameChoice" type="checkbox" ${state.timedGame ? 'checked' : ''}>
+        <span><strong>Timed game</strong><small>1 min per move / 50 min per player</small></span>
+      </label>`;
+  }
+
+  function bindTimedGameToggle() {
+    const checkbox = $('#timedGameChoice');
+    if (!checkbox) return;
+    checkbox.addEventListener('change', () => setTimedGame(checkbox.checked));
+  }
+
   function renderPhaseCard() {
     const card = elements.phaseCard;
 
@@ -183,18 +289,53 @@
       card.innerHTML = `
         <p class="eyebrow">CHOOSE A MODE</p>
         <h2>How do you want to play?</h2>
-        <p>Play locally against another person, or face a Basic CPU that checks every legal reply one move ahead.</p>
-        <div class="choice-actions">
+        <p>Play locally, face CPU1 or CPU3, or watch two CPUs play each other.</p>
+        <div class="mode-grid">
           <button id="localModeButton" class="primary-button" type="button">Local 1 vs 1</button>
-          <button id="cpuModeButton" class="secondary-button" type="button">Vs. Basic CPU</button>
-        </div>`;
+          <button id="cpu1ModeButton" class="secondary-button" type="button">Vs. CPU1</button>
+          <button id="cpu3ModeButton" class="secondary-button" type="button">Vs. CPU3</button>
+          <button id="cpuDuelModeButton" class="secondary-button" type="button">CPU vs CPU</button>
+        </div>
+        ${timedGameToggleMarkup()}`;
       $('#localModeButton').addEventListener('click', () => startMode('local'));
-      $('#cpuModeButton').addEventListener('click', () => startMode('cpu'));
+      $('#cpu1ModeButton').addEventListener('click', () => startMode('cpu1'));
+      $('#cpu3ModeButton').addEventListener('click', () => startMode('cpu3'));
+      $('#cpuDuelModeButton').addEventListener('click', openCpuDuelConfig);
+      bindTimedGameToggle();
+      return;
+    }
+
+    if (state.phase === 'cpu-config') {
+      card.innerHTML = `
+        <p class="eyebrow">CPU MATCH</p>
+        <h2>Choose both CPUs</h2>
+        <div class="cpu-config-grid">
+          <label><span>Player 1 · Cyan</span><select id="cyanCpuSelect"><option value="cpu1">CPU1</option><option value="cpu3">CPU3</option></select></label>
+          <label><span>Player 2 · Magenta</span><select id="magentaCpuSelect"><option value="cpu1">CPU1</option><option value="cpu3">CPU3</option></select></label>
+        </div>
+        ${timedGameToggleMarkup()}
+        <div class="choice-actions">
+          <button id="startCpuDuelButton" class="primary-button" type="button">Start CPU match</button>
+          <button id="backToModesButton" class="secondary-button" type="button">Back</button>
+        </div>`;
+      const cyanSelect = $('#cyanCpuSelect');
+      const magentaSelect = $('#magentaCpuSelect');
+      cyanSelect.value = state.cpuDuelConfig.cyan;
+      magentaSelect.value = state.cpuDuelConfig.magenta;
+      cyanSelect.addEventListener('change', () => { state.cpuDuelConfig.cyan = cyanSelect.value; });
+      magentaSelect.addEventListener('change', () => { state.cpuDuelConfig.magenta = magentaSelect.value; });
+      $('#startCpuDuelButton').addEventListener('click', startCpuDuel);
+      $('#backToModesButton').addEventListener('click', () => {
+        state.phase = 'mode';
+        state.mode = null;
+        render();
+      });
+      bindTimedGameToggle();
       return;
     }
 
     if (state.phase === 'choice') {
-      const participants = state.mode === 'cpu' ? 'you or the CPU' : 'one of the two players';
+      const participants = state.mode === 'local' ? 'one of the two players' : 'you or the CPU';
       card.innerHTML = `
         <p class="eyebrow">STEP 1 · TURN ORDER</p>
         <h2>Draw the choice maker</h2>
@@ -219,17 +360,19 @@
     }
 
     if (state.phase === 'cpu-choice') {
+      const label = state.identities.cpu || 'CPU';
       card.innerHTML = `
         <p class="eyebrow">CPU CHOICE MAKER</p>
-        <h2>Basic CPU is choosing</h2>
+        <h2>${label} is choosing</h2>
         <p class="thinking-line"><span class="thinking-dot"></span>The CPU will choose first or second.</p>`;
       return;
     }
 
     if (state.phase === 'cpu-setup') {
+      const label = cpuName(cpuLevel(state.setupOwner));
       card.innerHTML = `
         <p class="eyebrow">SECRET SETUP</p>
-        <h2>Basic CPU is placing its pieces</h2>
+        <h2>${label} is placing its pieces</h2>
         <p class="thinking-line"><span class="thinking-dot"></span>The CPU setup remains hidden until the reveal.</p>`;
       return;
     }
@@ -251,13 +394,18 @@
     }
 
     if (state.phase === 'play') {
-      const cpuTurn = isCpuOwner(state.currentOwner);
+      const level = cpuLevel(state.currentOwner);
+      const cpuTurn = Boolean(level);
+      const status = level === 'cpu3'
+        ? 'CPU3 is searching up to three plies, with a 45-second maximum.'
+        : 'CPU1 is checking every legal reply one move ahead.';
+      const paused = isCpuDuel() && state.cpuMatchPaused && !state.cpuStepOnce;
       card.innerHTML = `
         <div class="turn-banner">
           <span class="turn-dot ${state.currentOwner}"></span>
           <div><p class="eyebrow">CURRENT TURN</p><h2>${ownerLabel(state.currentOwner)} — ${personLabel(state.currentOwner)}</h2></div>
         </div>
-        <p>${cpuTurn ? '<span class="thinking-line"><span class="thinking-dot"></span>Basic CPU is checking every legal reply one move ahead.</span>' : 'Select one of your pieces, then select a highlighted destination.'}</p>`;
+        <p>${paused ? 'CPU match paused.' : (cpuTurn ? `<span class="thinking-line"><span class="thinking-dot"></span>${status}</span>` : 'Select one of your pieces, then select a highlighted destination.')}</p>`;
     }
   }
 
@@ -366,6 +514,16 @@
     elements.magentaEscaped.textContent = Game.escapedCount('magenta', state.pieces);
     elements.magentaCaptured.textContent = Game.captureCount('magenta', state.pieces);
     elements.turnCounter.textContent = `${state.turnCount} / 100`;
+
+    elements.timerCard.hidden = !state.timedGame;
+    updateTimerDisplay();
+
+    elements.cpuControls.hidden = !isCpuDuel();
+    if (isCpuDuel()) {
+      elements.cpuPauseButton.textContent = state.cpuMatchPaused ? 'Resume' : 'Pause';
+      elements.cpuNextButton.disabled = !state.cpuMatchPaused || state.cpuThinking;
+    }
+
     elements.history.innerHTML = '';
     state.history.forEach((entry) => {
       const item = document.createElement('li');
@@ -400,25 +558,24 @@
   }
 
   function assignRoles(choiceMakerWantsFirst) {
-    const otherPerson = state.mode === 'cpu'
+    const cpuMode = state.mode === 'cpu1' || state.mode === 'cpu3';
+    const otherPerson = cpuMode
       ? (state.choiceMaker === 'human' ? 'cpu' : 'human')
       : (state.choiceMaker === 'A' ? 'B' : 'A');
     const firstPerson = choiceMakerWantsFirst ? state.choiceMaker : otherPerson;
-    const secondPerson = firstPerson === (state.mode === 'cpu' ? 'human' : 'A')
-      ? (state.mode === 'cpu' ? 'cpu' : 'B')
-      : (state.mode === 'cpu' ? 'human' : 'A');
+    const humanOrA = cpuMode ? 'human' : 'A';
+    const cpuOrB = cpuMode ? 'cpu' : 'B';
+    const secondPerson = firstPerson === humanOrA ? cpuOrB : humanOrA;
 
     state.roleByPerson = { [firstPerson]: 'cyan', [secondPerson]: 'magenta' };
     state.personByOwner = { cyan: state.identities[firstPerson], magenta: state.identities[secondPerson] };
 
-    if (state.mode === 'cpu') {
+    if (cpuMode) {
+      const level = state.mode === 'cpu3' ? 'cpu3' : 'cpu1';
       state.humanOwner = state.roleByPerson.human;
-      state.cpuOwner = state.roleByPerson.cpu;
-      if (state.cpuOwner === 'cyan') {
-        beginCpuSetup('cyan');
-      } else {
-        beginSetup('cyan');
-      }
+      state.cpuByOwner[state.roleByPerson.cpu] = level;
+      if (isCpuOwner('cyan')) beginCpuSetup('cyan');
+      else beginSetup('cyan');
       return;
     }
 
@@ -432,35 +589,51 @@
   }
 
   function beginSetup(owner) {
+    dispatchLastMoveReset();
     state.phase = 'setup';
     state.setupOwner = owner;
     state.selectedPieceId = null;
     render();
   }
 
+  function createCpuSetup(owner) {
+    const level = cpuLevel(owner);
+    if (level === 'cpu3') return CPU3.createLogicalSetup(Game, owner, state.pieces);
+    return CPU1.createRandomSetup(Game, owner, state.pieces);
+  }
+
+  function finishCpuSetup(owner) {
+    state.nextPawnNumber[owner] = 6;
+    state.cpuThinking = false;
+
+    if (owner === 'cyan') {
+      if (isCpuOwner('magenta')) beginCpuSetup('magenta');
+      else beginSetup('magenta');
+      return;
+    }
+
+    state.phase = 'handoff';
+    render();
+    const cpuMatch = isCpuDuel();
+    showPassDialog(
+      'Both setups are locked',
+      cpuMatch ? 'Both CPU setups are ready.' : 'The CPU setup is ready. Reveal the board and begin the game.',
+      startPlay,
+      cpuMatch ? 'Start match' : 'Reveal board',
+      'READY TO PLAY'
+    );
+  }
+
   function beginCpuSetup(owner) {
+    dispatchLastMoveReset();
     state.phase = 'cpu-setup';
     state.setupOwner = owner;
     state.selectedPieceId = null;
     state.cpuThinking = true;
     render();
     scheduledTimer = window.setTimeout(() => {
-      CPU.createRandomSetup(Game, owner, state.pieces);
-      state.nextPawnNumber[owner] = 6;
-      state.cpuThinking = false;
-      if (owner === 'cyan') {
-        beginSetup('magenta');
-      } else {
-        state.phase = 'handoff';
-        render();
-        showPassDialog(
-          'Both setups are locked',
-          'The CPU setup is ready. Reveal the board and begin the game.',
-          startPlay,
-          'Reveal board',
-          'READY TO PLAY'
-        );
-      }
+      createCpuSetup(owner);
+      finishCpuSetup(owner);
     }, 1000);
   }
 
@@ -524,7 +697,7 @@
     if (!Game.validateSetup(state.setupOwner, state.pieces)) return;
     state.selectedPieceId = null;
 
-    if (state.mode === 'cpu') {
+    if (state.mode === 'cpu1' || state.mode === 'cpu3') {
       if (state.setupOwner === 'cyan') {
         beginCpuSetup('magenta');
       } else {
@@ -561,6 +734,7 @@
   }
 
   function startPlay() {
+    dispatchLastMoveReset();
     state.phase = 'play';
     state.currentOwner = 'cyan';
     state.selectedPieceId = null;
@@ -570,9 +744,59 @@
     state.repetitions = new Map();
     state.history = [];
     state.finished = false;
+    Timer.reset(state.timer, state.timedGame);
     recordPosition();
     render();
     processTurnStart();
+  }
+
+  function startTurnClock(owner) {
+    if (!state.timedGame) return;
+    if (state.timer.activeOwner === owner) {
+      if (state.timer.paused) Timer.resume(state.timer);
+    } else {
+      Timer.startTurn(state.timer, owner);
+    }
+    ensureClockInterval();
+    updateTimerDisplay();
+  }
+
+  function commitTurnClock(owner) {
+    if (!state.timedGame) return { usedMs: 0, remainingMs: Timer.PLAYER_LIMIT_MS };
+    const result = Timer.commitTurn(state.timer, owner);
+    updateTimerDisplay();
+    return result;
+  }
+
+  function forcePassClock(owner) {
+    if (!state.timedGame) return { usedMs: 0, remainingMs: Timer.PLAYER_LIMIT_MS };
+    const result = Timer.forcePass(state.timer, owner);
+    updateTimerDisplay();
+    return result;
+  }
+
+  function formatClock(ms) {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  function updateTimerDisplay() {
+    if (!state.timedGame || !elements.timerCard) return;
+    const snapshot = Timer.remaining(state.timer);
+    const cyanRunning = snapshot.owner === 'cyan' ? snapshot.usedMs : 0;
+    const magentaRunning = snapshot.owner === 'magenta' ? snapshot.usedMs : 0;
+    elements.moveClock.textContent = formatClock(snapshot.moveMs);
+    elements.cyanTotalClock.textContent = formatClock(Math.max(0, state.timer.remainingByOwner.cyan - cyanRunning));
+    elements.magentaTotalClock.textContent = formatClock(Math.max(0, state.timer.remainingByOwner.magenta - magentaRunning));
+  }
+
+  function tickClock() {
+    if (!state.timedGame || state.finished || state.phase !== 'play') return;
+    updateTimerDisplay();
+    const reason = Timer.timeoutReason(state.timer);
+    if (reason) finishTimeLoss(state.timer.activeOwner, reason);
   }
 
   function handlePlayCell(coord) {
@@ -600,9 +824,17 @@
   }
 
   function executeMove(move) {
+    if (state.finished) return;
+    const timeout = Timer.timeoutReason(state.timer);
+    if (timeout) {
+      finishTimeLoss(state.timer.activeOwner, timeout);
+      return;
+    }
     const piece = Game.getPiece(state.pieces, move.pieceId);
     if (!piece) return;
     const movingOwner = piece.owner;
+    clearCpuSearch();
+    commitTurnClock(movingOwner);
     const outcome = Game.applyMove(state.pieces, move);
     state.turnCount += 1;
     state.playerTurns[movingOwner] += 1;
@@ -630,25 +862,45 @@
       finishDraw('The same position occurred three times.');
       return;
     }
+
+    if (isCpuDuel() && state.cpuStepOnce) {
+      state.cpuStepOnce = false;
+      state.cpuMatchPaused = true;
+      render();
+      return;
+    }
+
     render();
     processTurnStart();
   }
 
   function processTurnStart() {
     if (state.finished || state.phase !== 'play') return;
+    if (isCpuDuel() && state.cpuMatchPaused && !state.cpuStepOnce) {
+      render();
+      return;
+    }
+
     const legalMoves = Game.allLegalMoves(state.currentOwner, state.pieces);
     if (legalMoves.length > 0) {
+      startTurnClock(state.currentOwner);
       if (isCpuOwner(state.currentOwner)) scheduleCpuMove();
       return;
     }
 
     const passingOwner = state.currentOwner;
+    const clockResult = forcePassClock(passingOwner);
     state.turnCount += 1;
     state.playerTurns[passingOwner] += 1;
     state.consecutivePasses += 1;
-    state.history.push(`${state.turnCount}. ${ownerLabel(passingOwner)} — forced pass`);
-    showToast(`${ownerLabel(passingOwner)} has no legal move. Turn passed.`);
+    state.history.push(`${state.turnCount}. ${ownerLabel(passingOwner)} — forced pass (1:00 charged)`);
+    showToast(`${ownerLabel(passingOwner)} has no legal move. One minute was charged and the turn passed.`);
 
+    if (state.timedGame && clockResult.remainingMs <= 0) {
+      render();
+      finishTimeLoss(passingOwner, 'total');
+      return;
+    }
     if (state.consecutivePasses >= 2) {
       render();
       finishDraw('Neither player can make a legal move.');
@@ -666,20 +918,103 @@
       finishDraw('The same position occurred three times.');
       return;
     }
+
+    if (isCpuDuel() && state.cpuStepOnce) {
+      state.cpuStepOnce = false;
+      state.cpuMatchPaused = true;
+      render();
+      return;
+    }
+
     render();
     scheduledTimer = window.setTimeout(processTurnStart, 650);
+  }
+
+  function scheduleCpu1Move() {
+    scheduledTimer = window.setTimeout(() => {
+      if (state.finished || state.phase !== 'play' || !isCpuOwner(state.currentOwner)) return;
+      const move = CPU1.chooseMove(Game, state.currentOwner, state.pieces);
+      state.cpuThinking = false;
+      if (move) executeMove(move);
+    }, 1000);
+  }
+
+  function finishCpu3Result(result, owner, startedAt) {
+    const minimumDelay = Math.max(0, 1000 - (performance.now() - startedAt));
+    scheduledTimer = window.setTimeout(() => {
+      if (state.finished || state.phase !== 'play' || state.currentOwner !== owner || cpuLevel(owner) !== 'cpu3') return;
+      state.cpuThinking = false;
+      const move = result && result.move ? result.move : CPU1.chooseMove(Game, owner, state.pieces);
+      if (move) executeMove(move);
+    }, minimumDelay);
+  }
+
+  function scheduleCpu3Move() {
+    const owner = state.currentOwner;
+    const startedAt = performance.now();
+
+    if (typeof Worker === 'undefined') {
+      scheduledTimer = window.setTimeout(() => {
+        const move = CPU3.chooseMove(Game, owner, state.pieces, { maxDepth: 3, maxTimeMs: 45000 });
+        state.cpuThinking = false;
+        if (move) executeMove(move);
+      }, 1000);
+      return;
+    }
+
+    cpuWorker = new Worker('src/cpu3-worker.js');
+    cpuWorker.onmessage = (event) => {
+      const worker = cpuWorker;
+      cpuWorker = null;
+      if (worker) worker.terminate();
+      window.clearTimeout(cpuDeadlineTimer);
+      cpuDeadlineTimer = null;
+      const result = event.data && event.data.ok ? event.data.result : null;
+      finishCpu3Result(result, owner, startedAt);
+    };
+    cpuWorker.onerror = () => {
+      clearCpuSearch();
+      finishCpu3Result(null, owner, startedAt);
+    };
+    cpuWorker.postMessage({ owner, pieces: state.pieces, maxDepth: 3, maxTimeMs: 45000 });
+
+    cpuDeadlineTimer = window.setTimeout(() => {
+      clearCpuSearch();
+      finishCpu3Result(null, owner, startedAt);
+    }, 45500);
   }
 
   function scheduleCpuMove() {
     clearScheduledAction();
     state.cpuThinking = true;
     render();
-    scheduledTimer = window.setTimeout(() => {
-      if (state.finished || state.phase !== 'play' || !isCpuOwner(state.currentOwner)) return;
-      const move = CPU.chooseMove(Game, state.currentOwner, state.pieces);
-      state.cpuThinking = false;
-      if (move) executeMove(move);
-    }, 1000);
+    if (cpuLevel(state.currentOwner) === 'cpu3') scheduleCpu3Move();
+    else scheduleCpu1Move();
+  }
+
+  function toggleCpuPause() {
+    if (!isCpuDuel() || state.finished) return;
+    if (!state.cpuMatchPaused) {
+      state.cpuMatchPaused = true;
+      state.cpuStepOnce = false;
+      clearScheduledAction();
+      Timer.pause(state.timer);
+      render();
+      return;
+    }
+
+    state.cpuMatchPaused = false;
+    Timer.resume(state.timer);
+    render();
+    processTurnStart();
+  }
+
+  function playNextCpuMove() {
+    if (!isCpuDuel() || !state.cpuMatchPaused || state.finished || state.cpuThinking) return;
+    state.cpuStepOnce = true;
+    Timer.resume(state.timer);
+    render();
+    processTurnStart();
   }
 
   function recordPosition() {
@@ -697,7 +1032,7 @@
   }
 
   function formatHistoryEntry(turn, piece, outcome) {
-    const actor = state.mode === 'cpu' && piece.owner === state.cpuOwner ? 'Basic CPU' : ownerLabel(piece.owner);
+    const actor = isCpuOwner(piece.owner) ? cpuName(cpuLevel(piece.owner)) : ownerLabel(piece.owner);
     if (outcome.exits) return `${turn}. ${actor} ${pieceLabel(piece)}: ${outcome.from} → EXIT`;
     if (outcome.captured) return `${turn}. ${actor} Hunter: ${outcome.from} × ${outcome.to} (${pieceLabel(outcome.captured)})`;
     return `${turn}. ${actor} ${pieceLabel(piece)}: ${outcome.from} → ${outcome.to}`;
@@ -705,6 +1040,8 @@
 
   function finishWithWinner(win) {
     clearScheduledAction();
+    stopClockInterval();
+    Timer.stopTurn(state.timer);
     state.finished = true;
     const reason = win.reason === 'escape'
       ? 'Two numbered pawns escaped through the central door.'
@@ -714,8 +1051,25 @@
     elements.resultDialog.showModal();
   }
 
+  function finishTimeLoss(loser, reason) {
+    if (!loser || state.finished) return;
+    clearScheduledAction();
+    stopClockInterval();
+    Timer.stopTurn(state.timer);
+    state.finished = true;
+    const winner = Game.otherOwner(loser);
+    elements.resultTitle.textContent = `${personLabel(winner)} wins on time`;
+    elements.resultText.textContent = reason === 'total'
+      ? `${personLabel(loser)} used all 50 minutes.`
+      : `${personLabel(loser)} exceeded the one-minute move limit.`;
+    render();
+    elements.resultDialog.showModal();
+  }
+
   function finishDraw(reason) {
     clearScheduledAction();
+    stopClockInterval();
+    Timer.stopTurn(state.timer);
     state.finished = true;
     elements.resultTitle.textContent = 'Draw';
     elements.resultText.textContent = reason;
@@ -739,12 +1093,14 @@
     elements.toast.textContent = message;
     elements.toast.classList.add('visible');
     window.clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => elements.toast.classList.remove('visible'), 2400);
+    toastTimer = window.setTimeout(() => elements.toast.classList.remove('visible'), 3000);
   }
 
   elements.returnPieceButton.addEventListener('click', returnSelectedPiece);
   elements.restartSetupButton.addEventListener('click', restartCurrentSetup);
   elements.lockSetupButton.addEventListener('click', lockSetup);
+  elements.cpuPauseButton.addEventListener('click', toggleCpuPause);
+  elements.cpuNextButton.addEventListener('click', playNextCpuMove);
   elements.confirmMoves.checked = state.confirmMoves;
   elements.confirmMoves.addEventListener('change', () => {
     state.confirmMoves = elements.confirmMoves.checked;

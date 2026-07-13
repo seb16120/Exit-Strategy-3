@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="Exit Strategy 3 — an abstract strategy game for local play or versus a Basic CPU.">
+  <meta name="description" content="Exit Strategy 3 — an abstract strategy game for local play, versus CPU1 or CPU3, and CPU matches.">
   <meta name="theme-color" content="#17191d">
   <title>Exit Strategy 3</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="cpu.css">
   <link rel="stylesheet" href="last-move.css">
+  <link rel="stylesheet" href="advanced.css">
 </head>
 <body>
   <header class="site-header">
@@ -59,6 +60,23 @@
           <div><span>Escaped <b id="magentaEscaped">0</b>/2</span><span>Captured <b id="magentaCaptured">0</b>/3</span></div>
         </div>
         <div class="turn-counter"><span>Turns</span><strong id="turnCounter">0 / 100</strong></div>
+      </section>
+
+      <section id="timerCard" class="timer-card" hidden>
+        <h2>Timed game</h2>
+        <div class="move-clock-row"><span>Current move</span><strong id="moveClock">1:00</strong></div>
+        <div class="total-clock-grid">
+          <div><span>Cyan total</span><strong id="cyanTotalClock">50:00</strong></div>
+          <div><span>Magenta total</span><strong id="magentaTotalClock">50:00</strong></div>
+        </div>
+      </section>
+
+      <section id="cpuControls" class="cpu-controls" hidden>
+        <h2>CPU match controls</h2>
+        <div class="cpu-control-actions">
+          <button id="cpuPauseButton" class="secondary-button" type="button">Pause</button>
+          <button id="cpuNextButton" class="secondary-button" type="button" disabled>Next move</button>
+        </div>
       </section>
 
       <section class="settings-card">
@@ -126,8 +144,14 @@
         <p>The Hunter moves exactly one square horizontally or vertically. It cannot enter the exit, land on a friendly pawn, or land on the opposing Hunter. It captures by entering a square occupied by an opposing pawn.</p>
         <h3>Setup and turns</h3>
         <p>The choice maker is drawn at random and chooses to play first or second. The first player becomes Player 1 (cyan), sets up first, and takes the first turn. Both setups remain secret until the simultaneous reveal.</p>
-        <h3>Vs. Basic CPU</h3>
-        <p>The choice maker may be you or the CPU. Whoever plays first becomes Player 1 (cyan). The CPU uses a random legal secret setup, waits one second before acting, and evaluates every legal opponent reply on the immediately following turn.</p>
+        <h3>CPU1</h3>
+        <p>CPU1 uses a random legal setup and checks the opponent's immediately available replies before moving.</p>
+        <h3>CPU3</h3>
+        <p>CPU3 uses a scored logical setup and searches three plies: CPU move, opponent reply, CPU reply. It thinks for at least one second and no longer than 45 seconds.</p>
+        <h3>CPU vs CPU</h3>
+        <p>Select CPU1 or CPU3 independently for Player 1 and Player 2. The match can be paused, resumed, or advanced one move at a time.</p>
+        <h3>Timed game</h3>
+        <p>When enabled, each move has a one-minute limit and each player has 50 minutes total. The confirmation dialog does not pause the clock. A forced pass immediately consumes one full minute from that player's total.</p>
         <h3>Draws</h3>
         <p>The game is drawn after two consecutive forced passes, the third occurrence of the same position, or 100 turns total (50 per player).</p>
       </div>
@@ -138,6 +162,8 @@
 
   <script src="src/game.js"></script>
   <script src="src/cpu.js"></script>
+  <script src="src/cpu3.js"></script>
+  <script src="src/timer.js"></script>
   <script src="src/app.js"></script>
   <script src="src/last-move.js"></script>
 </body>

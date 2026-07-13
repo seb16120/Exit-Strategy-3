@@ -3,7 +3,8 @@
 
   const board = document.querySelector('#board');
   const history = document.querySelector('#history');
-  if (!board || !history) return;
+  const sidePanel = document.querySelector('#sidePanel');
+  if (!board || !history || !sidePanel) return;
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const EXIT_COORD = 'D4';
@@ -97,7 +98,7 @@
       piece.classList.remove('last-moved-piece');
     });
 
-    if (!lastMove) {
+    if (sidePanel.hidden || !lastMove) {
       overlay.hidden = true;
       return;
     }

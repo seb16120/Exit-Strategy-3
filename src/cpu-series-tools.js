@@ -24,10 +24,50 @@
 
   const style = document.createElement('style');
   style.textContent = `
-    .auto-chain-choice{margin-top:14px}
+    .auto-chain-choice{margin-top:clamp(.65rem,1.2vh,.9rem)}
     .auto-series-card h2{font-size:1rem}
-    .series-score{display:grid;grid-template-columns:1fr auto;gap:7px 12px;margin:12px 0;color:var(--muted)}
+    .series-score{display:grid;grid-template-columns:1fr auto;gap:clamp(.3rem,.7vh,.5rem) clamp(.6rem,1vw,.9rem);margin:clamp(.55rem,1.1vh,.8rem) 0;color:var(--muted)}
     .series-score strong{color:var(--text);text-align:right}
+    .cpu-return-menu{width:100%;margin-top:clamp(.45rem,.8vh,.7rem)}
+
+    @media (min-width:70rem) and (min-aspect-ratio:4/3) {
+      body.cpu-duel-layout .site-header,
+      body.cpu-duel-layout .app-shell{width:94vw;max-width:none}
+      body.cpu-duel-layout .site-header{padding-top:clamp(.6rem,1.8vh,1.25rem);padding-bottom:clamp(.25rem,.8vh,.65rem)}
+      body.cpu-duel-layout .app-shell{
+        grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);
+        gap:clamp(.7rem,1.2vw,1.45rem);
+        padding-top:clamp(.2rem,.6vh,.55rem);
+        padding-bottom:clamp(.8rem,2vh,1.8rem)
+      }
+      body.cpu-duel-layout .side-panel{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        gap:clamp(.45rem,.75vw,.8rem);
+        align-items:start
+      }
+      body.cpu-duel-layout .side-panel>section{
+        min-width:0;
+        padding:clamp(.6rem,.8vw,.95rem);
+        border-radius:clamp(.75rem,1vw,1.1rem)
+      }
+      body.cpu-duel-layout .score-row{
+        gap:clamp(.35rem,.6vw,.65rem);
+        padding:clamp(.45rem,.65vw,.7rem);
+        margin-bottom:clamp(.3rem,.5vw,.5rem)
+      }
+      body.cpu-duel-layout .score-row>div:last-child{font-size:clamp(.72rem,.68vw,.84rem)}
+      body.cpu-duel-layout .turn-counter{padding-top:clamp(.2rem,.4vh,.35rem)}
+      body.cpu-duel-layout .cpu-control-actions{gap:clamp(.4rem,.65vw,.65rem)}
+      body.cpu-duel-layout .cpu-control-actions>button{min-width:0;flex:1}
+      body.cpu-duel-layout .learning-settings{gap:clamp(.45rem,.7vw,.75rem);margin-top:clamp(.45rem,.8vh,.7rem);padding-top:clamp(.45rem,.8vh,.7rem)}
+      body.cpu-duel-layout .cpuplus-data-actions{gap:clamp(.35rem,.65vh,.55rem);margin-top:clamp(.45rem,.8vh,.7rem);padding-top:clamp(.45rem,.8vh,.7rem)}
+      body.cpu-duel-layout .cpuplus-data-actions>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(.35rem,.55vw,.55rem)}
+      body.cpu-duel-layout .cpuplus-data-actions button{min-width:0;padding-inline:clamp(.45rem,.7vw,.75rem)}
+      body.cpu-duel-layout .toggle-row{padding:clamp(.35rem,.7vh,.55rem) 0}
+      body.cpu-duel-layout .history{max-height:clamp(5rem,16dvh,12rem)}
+      body.cpu-duel-layout .phase-card{min-height:clamp(6.7rem,13dvh,8rem);padding:clamp(.8rem,1.1vw,1.25rem);margin-bottom:clamp(.55rem,1vh,.9rem)}
+      body.cpu-duel-layout .board-frame{margin-bottom:clamp(.45rem,.9vh,.8rem)}
+    }
   `;
   document.head.appendChild(style);
 
@@ -48,6 +88,71 @@
   function seatName(seat) {
     const same = series.seats.A === series.seats.B;
     return same ? `${cpuName(series.seats[seat])} ${seat}` : cpuName(series.seats[seat]);
+  }
+
+  function isCpuDuelVisible() {
+    const cpuControls = document.querySelector('#cpuControls');
+    return Boolean(sidePanel && cpuControls && !sidePanel.hidden && !cpuControls.hidden);
+  }
+
+  function syncResponsiveLayout() {
+    document.body.classList.toggle('cpu-duel-layout', isCpuDuelVisible());
+  }
+
+  function returnDialog() {
+    let dialog = document.querySelector('#returnToMainMenuDialog');
+    if (dialog) return dialog;
+    dialog = document.createElement('dialog');
+    dialog.id = 'returnToMainMenuDialog';
+    dialog.className = 'modal';
+    dialog.innerHTML = `
+      <div class="modal-body">
+        <p class="eyebrow">LEAVE CPU MATCH</p>
+        <h2>Return to the main menu?</h2>
+        <p id="returnToMainMenuText">The current CPU match will stop.</p>
+        <div class="dialog-actions">
+          <button id="cancelReturnToMainMenu" class="secondary-button" type="button">Cancel</button>
+          <button id="confirmReturnToMainMenu" class="danger-button" type="button">Return to main menu</button>
+        </div>
+      </div>`;
+    document.body.appendChild(dialog);
+    dialog.querySelector('#cancelReturnToMainMenu').addEventListener('click', () => dialog.close());
+    dialog.querySelector('#confirmReturnToMainMenu').addEventListener('click', () => {
+      clearTimeout(resultTimer);
+      advancing = false;
+      stopSeries();
+      if (dialog.open) dialog.close();
+      if (resultDialog?.open) resultDialog.close();
+      document.querySelector('#newGameButton')?.click();
+      syncResponsiveLayout();
+    });
+    return dialog;
+  }
+
+  function openReturnDialog() {
+    const dialog = returnDialog();
+    const text = dialog.querySelector('#returnToMainMenuText');
+    const finished = Boolean(resultDialog?.open);
+    if (text) {
+      text.textContent = finished
+        ? 'The current result screen and any automatic series will close.'
+        : series.active
+          ? 'The current game and automatic series will stop. This unfinished game will not count in the series or CPU+ learning.'
+          : 'The current CPU match will stop. This unfinished game will not count as a result or CPU+ learning.';
+    }
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function installReturnButton() {
+    const controls = document.querySelector('#cpuControls');
+    if (!controls || document.querySelector('#returnToMainMenuButton')) return;
+    const button = document.createElement('button');
+    button.id = 'returnToMainMenuButton';
+    button.className = 'secondary-button cpu-return-menu';
+    button.type = 'button';
+    button.textContent = 'Return to main menu';
+    button.addEventListener('click', openReturnDialog);
+    controls.appendChild(button);
   }
 
   function installOption() {
@@ -218,9 +323,19 @@
     if (event.target.closest?.('#newGameButton') && series.active && !advancing) stopSeries();
   }, true);
 
-  phaseCard && new MutationObserver(() => { installOption(); renderPanel(); }).observe(phaseCard, { childList: true, subtree: true });
+  phaseCard && new MutationObserver(() => {
+    installOption();
+    installReturnButton();
+    renderPanel();
+    syncResponsiveLayout();
+  }).observe(phaseCard, { childList: true, subtree: true });
+  sidePanel && new MutationObserver(syncResponsiveLayout).observe(sidePanel, { attributes: true, attributeFilter: ['hidden'] });
+  const cpuControls = document.querySelector('#cpuControls');
+  cpuControls && new MutationObserver(syncResponsiveLayout).observe(cpuControls, { attributes: true, attributeFilter: ['hidden'] });
   resultDialog && new MutationObserver(handleResult).observe(resultDialog, { attributes: true, attributeFilter: ['open'] });
 
   installOption();
+  installReturnButton();
   renderPanel();
+  syncResponsiveLayout();
 })();

@@ -5,70 +5,58 @@ A browser-based adaptation of the abstract strategy game **Exit Strategy 3**.
 ## Play
 
 Open `index.html` locally, or use the GitHub Pages deployment from `main`.
-
 No framework, server, account, or build step is required.
 
 ## Game modes
 
-- **Local 1 vs 1** keeps the original secret handoff setup.
-- **Vs. CPU1** uses a random legal CPU setup. CPU1 waits at least one second and checks every immediately available opponent reply before choosing a move.
-- **Vs. CPU3** uses a scored logical setup and iterative Minimax with alpha-beta pruning. Its search is three plies: CPU move, opponent reply, CPU reply. It thinks for at least one second and no longer than 45 seconds.
-- **CPU vs CPU** lets Player 1 and Player 2 independently use CPU1 or CPU3. Matches can be paused, resumed, or advanced one move at a time.
+- **Local 1 vs 1** uses private handoffs for both secret setups.
+- **Vs. CPU1** uses a random legal setup and checks every immediate opponent reply.
+- **Vs. CPU3** uses a logical setup and an iterative, alpha-beta minimax search capped at three plies and 45 seconds.
+- **Vs. CPU+** uses iterative deepening beyond depth three. Except when only one legal move exists or a move wins immediately, it thinks for at least 30 seconds and at most 55 seconds.
+- **CPU vs CPU** lets each color independently use CPU1, CPU3, or CPU+, with pause and single-move controls.
 
-An optional timed mode gives each move a one-minute limit and each player 50 minutes total. The confirmation dialog does not pause the clock. A forced pass consumes one full minute from the passing player's total.
+## CPU+ placement learning
+
+CPU+ receives about six seconds for its secret setup: the CPU3 logical evaluation plus five seconds of additional comparisons against hypothetical legal opponent formations.
+
+Placement outcomes are stored only in the current browser. The placement key:
+
+- ignores pawn numbering;
+- rotates magenta formations by 180 degrees for color normalization;
+- keeps first-player and second-player results separate.
+
+Results are weighted by opponent strength:
+
+- CPU+: `100%`;
+- CPU3: `66%`;
+- CPU1: `50%`;
+- local human: starts at `80%`, rises toward `100%` when CPU+ struggles, and falls toward `60%` when CPU+ dominates.
+
+A CPU+ loss on time is excluded from placement learning. A protected reset is available in the options; only a SHA-256 password fingerprint is stored in the repository.
+
+## Timed games
+
+The optional timed mode gives each move one minute and each player 50 minutes total. The confirmation dialog does not stop the clock. A forced pass immediately consumes one minute from the passing player's total.
+
+## Abandoning
+
+- **I was going to lose** awards the opponent the win and may feed CPU+ learning.
+- **I have to leave** interrupts the game without recording a result.
 
 ## Rules
 
 Each player has five numbered pawns and one Hunter.
 
-### Victory
-
 A player wins by either:
 
-- getting **two numbered pawns** out through the central exit; or
-- using the Hunter to capture **three opposing pawns**.
+- getting two numbered pawns out through the central exit; or
+- using the Hunter to capture three opposing pawns.
 
-### Setup
+A numbered pawn moves horizontally or vertically as far as possible. It cannot stop early or capture. The central exit is intangible while crossing it; a pawn exits only when the exit is its forced final square.
 
-1. The system randomly selects the **choice maker**.
-2. The choice maker chooses to play first or second.
-3. The first player becomes **Player 1 (cyan)**, sets up first, and later takes the first turn.
-4. Player 2 uses **magenta** and sets up second.
-5. Both setups are secret until the simultaneous reveal.
+The Hunter moves exactly one square horizontally or vertically. It cannot enter the exit, land on a friendly pawn, or land on the opposing Hunter. It captures an opposing pawn by entering its square.
 
-Pawns are numbered in their first-placement order. Moving or temporarily returning a pawn to the reserve does not change its number. Restarting the whole placement resets numbering to 1.
-
-### Numbered pawns
-
-A numbered pawn moves horizontally or vertically **as far as possible**. It stops on the last empty square before a wall or any piece. Pawns cannot capture and cannot stop early.
-
-The central exit is intangible. A pawn may cross it without leaving the board. It exits only when the central exit is its forced final square because the next square is blocked by a wall or a piece.
-
-### Hunter
-
-The Hunter moves exactly one square horizontally or vertically. It cannot:
-
-- enter the central exit;
-- land on a friendly pawn;
-- land on the opposing Hunter.
-
-It captures an opposing pawn by entering that pawn's square.
-
-### Draws
-
-The game is drawn when:
-
-- neither player can move, causing two consecutive forced passes;
-- the same full position occurs for the third time;
-- 100 turns are completed, giving each player at most 50 turns.
-
-## Board coordinates
-
-The board is based on a 7 × 7 grid. These 12 squares are removed:
-
-`A1`, `E1`, `F1`, `G1`, `G2`, `G3`, `A5`, `A6`, `A7`, `B7`, `C7`, `G7`.
-
-The exit is `D4`.
+The game is drawn after two consecutive forced passes, the third occurrence of the same position, or 100 turns.
 
 ## Development
 
@@ -76,4 +64,4 @@ The exit is `D4`.
 npm test
 ```
 
-The static site deploys from `main` through the included GitHub Pages workflow.
+The site is static and deploys from `main` through GitHub Pages.

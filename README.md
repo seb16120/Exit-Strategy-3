@@ -1,6 +1,6 @@
 # Exit Strategy 3
 
-A browser-based adaptation of the abstract strategy game **Exit Strategy 3**, playable locally or against a Basic CPU.
+A browser-based adaptation of the abstract strategy game **Exit Strategy 3**.
 
 ## Play
 
@@ -11,7 +11,11 @@ No framework, server, account, or build step is required.
 ## Game modes
 
 - **Local 1 vs 1** keeps the original secret handoff setup.
-- **Vs. Basic CPU** randomly draws either the human or CPU as choice maker. Whoever plays first becomes Player 1 (cyan). The CPU uses a random legal secret setup, waits one second before moving, and applies a one-reply minimax check: for every candidate move, it simulates every legal opponent move on the immediately following turn.
+- **Vs. CPU1** uses a random legal CPU setup. CPU1 waits at least one second and checks every immediately available opponent reply before choosing a move.
+- **Vs. CPU3** uses a scored logical setup and iterative Minimax with alpha-beta pruning. Its search is three plies: CPU move, opponent reply, CPU reply. It thinks for at least one second and no longer than 45 seconds.
+- **CPU vs CPU** lets Player 1 and Player 2 independently use CPU1 or CPU3. Matches can be paused, resumed, or advanced one move at a time.
+
+An optional timed mode gives each move a one-minute limit and each player 50 minutes total. The confirmation dialog does not pause the clock. A forced pass consumes one full minute from the passing player's total.
 
 ## Rules
 
@@ -72,4 +76,4 @@ The exit is `D4`.
 npm test
 ```
 
-The site is static and deploys from `main` through the included GitHub Pages workflow.
+The static site deploys from `main` through the included GitHub Pages workflow.

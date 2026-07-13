@@ -1,0 +1,42 @@
+.board {
+  --board-border-width: 6px;
+  isolation: isolate;
+}
+
+.last-move-layer {
+  position: absolute;
+  left: var(--board-border-width);
+  top: var(--board-border-width);
+  width: calc(100% - var(--board-border-width) - var(--board-border-width));
+  height: calc(100% - var(--board-border-width) - var(--board-border-width));
+  pointer-events: none;
+  overflow: visible;
+  z-index: 2;
+}
+
+.last-move-arrow-shadow,
+.last-move-arrow {
+  stroke-linecap: round;
+}
+
+.last-move-arrow-shadow {
+  stroke: rgba(255, 255, 255, .78);
+  stroke-width: .18;
+}
+
+.last-move-arrow {
+  stroke: #686e78;
+  stroke-width: .10;
+}
+
+.last-move-arrowhead {
+  fill: #686e78;
+}
+
+.piece.last-moved-piece {
+  color: #9298a2;
+}
+
+@media (max-width: 620px) {
+  .board { --board-border-width: 4px; }
+}

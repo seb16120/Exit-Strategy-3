@@ -18,6 +18,7 @@
   overlay.setAttribute('viewBox', '0 0 7 7');
   overlay.setAttribute('preserveAspectRatio', 'none');
   overlay.setAttribute('aria-hidden', 'true');
+  overlay.hidden = true;
 
   const defs = document.createElementNS(SVG_NS, 'defs');
   const marker = document.createElementNS(SVG_NS, 'marker');
@@ -93,12 +94,22 @@
     };
   }
 
-  function drawLastMove() {
+  function clearPieceHighlight() {
     board.querySelectorAll('.piece.last-moved-piece').forEach((piece) => {
       piece.classList.remove('last-moved-piece');
     });
+  }
 
-    if (sidePanel.hidden || !lastMove) {
+  function resetLastMove() {
+    lastMove = null;
+    clearPieceHighlight();
+    overlay.hidden = true;
+  }
+
+  function drawLastMove() {
+    clearPieceHighlight();
+
+    if (sidePanel.hidden || history.children.length === 0 || !lastMove) {
       overlay.hidden = true;
       return;
     }
@@ -129,13 +140,17 @@
 
   const historyObserver = new MutationObserver(() => {
     lastMove = readLatestMove();
-    queueDraw();
+    if (!lastMove) resetLastMove();
+    else queueDraw();
   });
   historyObserver.observe(history, { childList: true });
 
   const boardObserver = new MutationObserver(queueDraw);
   boardObserver.observe(board, { childList: true, subtree: true });
 
-  lastMove = readLatestMove();
-  drawLastMove();
+  const sidePanelObserver = new MutationObserver(queueDraw);
+  sidePanelObserver.observe(sidePanel, { attributes: true, attributeFilter: ['hidden'] });
+
+  window.addEventListener('exit-strategy:reset-last-move', resetLastMove);
+  resetLastMove();
 })();

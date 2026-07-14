@@ -199,6 +199,7 @@ function minimax(rootOwner, currentOwner, pieces, depth, alpha, beta, passCount,
   if (cached !== undefined) return cached;
   const moves = orderedMoves(rootOwner, currentOwner, pieces);
   if (moves.length === 0) {
+    context.bestMoveCache.set(key, { pass: true, owner: currentOwner });
     if (passCount >= 1) return 0;
     const value = minimax(
       rootOwner,
@@ -216,6 +217,7 @@ function minimax(rootOwner, currentOwner, pieces, depth, alpha, beta, passCount,
 
   const maximizing = currentOwner === rootOwner;
   let best = maximizing ? -Infinity : Infinity;
+  let bestMove = null;
   let complete = true;
   for (const move of moves) {
     if (Date.now() >= context.deadline) throw new SearchTimeout();
@@ -232,10 +234,16 @@ function minimax(rootOwner, currentOwner, pieces, depth, alpha, beta, passCount,
       context
     );
     if (maximizing) {
-      best = Math.max(best, value);
+      if (value > best) {
+        best = value;
+        bestMove = move;
+      }
       alpha = Math.max(alpha, best);
     } else {
-      best = Math.min(best, value);
+      if (value < best) {
+        best = value;
+        bestMove = move;
+      }
       beta = Math.min(beta, best);
     }
     if (beta <= alpha) {
@@ -243,8 +251,41 @@ function minimax(rootOwner, currentOwner, pieces, depth, alpha, beta, passCount,
       break;
     }
   }
+  if (bestMove) context.bestMoveCache.set(key, { ...bestMove, owner: currentOwner });
   if (complete) context.cache.set(key, best);
   return best;
+}
+
+function buildPrincipalVariation(rootOwner, pieces, depth, rootMove, context) {
+  if (!rootMove || depth <= 0) return [];
+  const position = clonePieces(pieces);
+  const line = [];
+  let currentOwner = rootOwner;
+  let remaining = depth;
+  let passCount = 0;
+  let action = { ...rootMove, owner: rootOwner };
+
+  while (remaining > 0 && action) {
+    if (action.pass) {
+      line.push({ pass: true, owner: currentOwner });
+      currentOwner = Game.otherOwner(currentOwner);
+      passCount += 1;
+      remaining -= 1;
+    } else {
+      line.push({ ...action, owner: currentOwner });
+      Game.applyMove(position, action);
+      currentOwner = Game.otherOwner(currentOwner);
+      passCount = 0;
+      remaining -= 1;
+    }
+
+    if (remaining <= 0 || Game.winner(position)) break;
+    const key = `${remaining}|${passCount}|${Game.serializePosition(position, currentOwner)}`;
+    const stored = context.bestMoveCache.get(key);
+    action = stored ? { ...stored, owner: currentOwner } : null;
+  }
+
+  return line.slice(0, depth);
 }
 
 function searchDepth(owner, pieces, depth, context) {
@@ -274,9 +315,11 @@ function searchDepth(owner, pieces, depth, context) {
     }
     alpha = Math.max(alpha, bestScore);
   }
+  const move = bestMoves[Math.floor(Math.random() * bestMoves.length)];
   return {
-    move: bestMoves[Math.floor(Math.random() * bestMoves.length)],
-    score: bestScore
+    move,
+    score: bestScore,
+    principalVariation: buildPrincipalVariation(owner, pieces, depth, move, context)
   };
 }
 
@@ -293,7 +336,7 @@ function searchMove(owner, pieces, options = {}) {
   const maxDepth = Math.max(1, Math.min(CPUPlus.MAX_DEPTH || 64, options.maxDepth || 64));
   const maxTimeMs = Math.max(10, Math.min(CPUPlus.MOVE_SEARCH_MS || 54000, options.maxTimeMs || 54000));
   const startedAt = Date.now();
-  const context = { deadline: startedAt + maxTimeMs, cache: new Map(), nodes: 0 };
+  const context = { deadline: startedAt + maxTimeMs, cache: new Map(), bestMoveCache: new Map(), nodes: 0 };
   const legalMoves = orderedMoves(owner, owner, pieces);
   if (!legalMoves.length) return { move: null, completedDepth: 0, nodes: 0, elapsedMs: 0, timedOut: false };
 
@@ -317,6 +360,7 @@ function searchMove(owner, pieces, options = {}) {
 
   for (let depth = 1; depth <= maxDepth; depth += 1) {
     context.cache.clear();
+    context.bestMoveCache.clear();
     try {
       const result = searchDepth(owner, pieces, depth, context);
       if (result.move) best = result;
@@ -328,7 +372,8 @@ function searchMove(owner, pieces, options = {}) {
           completedDepth,
           searchingDepth: depth < maxDepth ? depth + 1 : null,
           nodes: context.nodes,
-          elapsedMs: Date.now() - startedAt
+          elapsedMs: Date.now() - startedAt,
+          principalVariation: result.principalVariation || []
         }
       });
     } catch (error) {
@@ -345,6 +390,7 @@ function searchMove(owner, pieces, options = {}) {
     nodes: context.nodes,
     elapsedMs: Date.now() - startedAt,
     timedOut,
+    principalVariation: best.principalVariation || [],
     fastPath: null
   };
 }

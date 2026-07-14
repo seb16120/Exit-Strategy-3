@@ -40,6 +40,7 @@
     index: 0,
     selectedPieceId: null,
     cpuThinking: false,
+    cpuProgress: null,
     status: '',
     originalResultOpen: false
   };
@@ -57,6 +58,8 @@
     .analysis-history button:hover,.analysis-history button.active{border-color:var(--line);background:var(--panel-soft);color:var(--text)}
     .analysis-history button.variation{border-left:3px solid var(--exit)}
     .analysis-status{color:var(--muted);margin:0}
+    .analysis-cpu-progress:empty{display:none}
+    .analysis-cpu-progress .cpuplus-depth-status,.analysis-cpu-progress .cpuplus-best-sequence{padding-left:0}
     .analysis-selected{outline:5px solid white;outline-offset:-7px;z-index:2}
     .review-import-text{width:100%;min-height:12rem;resize:vertical;border:1px solid var(--line);border-radius:.7rem;background:#101217;color:var(--text);padding:.75rem;font:500 .82rem/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}
     .review-import-error{color:var(--danger);min-height:1.3em}
@@ -539,6 +542,7 @@
     analysis.index = Math.max(0, Math.min(options.index ?? analysis.timeline.length - 1, analysis.timeline.length - 1));
     analysis.selectedPieceId = null;
     analysis.cpuThinking = false;
+    analysis.cpuProgress = null;
     analysis.status = options.playable ? 'Imported position: playable variation.' : 'Select a move in the history, then explore another line.';
     analysis.originalResultOpen = Boolean(clean.result && !options.imported);
     document.body.classList.add('analysis-mode');
@@ -568,6 +572,7 @@
     }
     analysis.active = false;
     analysis.cpuThinking = false;
+    analysis.cpuProgress = null;
     document.body.classList.remove('analysis-mode');
     $('#analysisControls')?.setAttribute('hidden', '');
     window.dispatchEvent(new Event('exit-strategy:reset-last-move'));
@@ -680,23 +685,51 @@
     $('#magentaPlayerIdentity').textContent = analysis.source.config.personByOwner.magenta;
   }
 
+  function renderAnalysisCpuProgress() {
+    const host = $('#analysisCpuProgress');
+    if (!host) return;
+    host.replaceChildren();
+    const snapshot = currentSnapshot();
+    const level = analysis.source?.config?.cpuByOwner?.[snapshot.currentOwner];
+    const progress = analysis.cpuProgress;
+    const ui = window.ExitStrategyCpuProgressUI;
+    if (!analysis.cpuThinking || level !== 'cpuplus' || !progress || !ui) return;
+    const depth = ui.depthText(progress);
+    if (depth) {
+      const node = document.createElement('small');
+      node.className = 'cpuplus-depth-status';
+      node.textContent = depth;
+      host.appendChild(node);
+    }
+    const sequence = ui.createBestSequenceNode(progress, snapshot.turnCount, (owner) => ownerName(owner));
+    if (sequence) host.appendChild(sequence);
+  }
+
   function renderAnalysis() {
     if (!analysis.active) return;
     const snapshot = currentSnapshot();
     const level = analysis.source.config.cpuByOwner[snapshot.currentOwner];
     const winner = Game.winner(snapshot.pieces);
     let detail = analysis.status;
+    let detailHtml = '';
     if (winner) detail = `${ownerName(winner.owner)} has a winning position. Select an earlier move to explore another line.`;
     else if (snapshot.turnCount >= 100) detail = 'The variation reached the 100-turn limit.';
     else if (analysis.cpuThinking) detail = `${cpuLabel(level)} is calculating. The analysis remains paused after this move.`;
     else if (level) detail = `${cpuLabel(level)} to move. Click “Next CPU move”.`;
     else detail = detail || `${ownerName(snapshot.currentOwner)} to move. Select a piece and destination.`;
+    if (analysis.cpuThinking) {
+      detailHtml = `<span class="thinking-line"><span class="thinking-dot"></span>${detail}</span>`;
+    } else {
+      detailHtml = detail;
+    }
     phaseCard.innerHTML = `
       <div class="turn-banner"><span class="turn-dot ${snapshot.currentOwner}"></span><div><p class="eyebrow">CURRENT TURN · ANALYSIS</p><h2>${ownerName(snapshot.currentOwner)} — ${snapshot.currentOwner === 'cyan' ? 'Cyan' : 'Magenta'}</h2></div></div>
-      <p>${detail}</p>`;
+      <p>${detailHtml}</p>
+      <div id="analysisCpuProgress" class="analysis-cpu-progress"></div>`;
     renderAnalysisBoard();
     renderAnalysisHistory();
     updateAnalysisScore(snapshot);
+    renderAnalysisCpuProgress();
     const next = $('#analysisNextCpu');
     if (next) {
       next.hidden = !level;
@@ -790,6 +823,7 @@
     const delay = Math.max(0, minimum - (performance.now() - startedAt));
     setTimeout(() => {
       analysis.cpuThinking = false;
+      analysis.cpuProgress = null;
       const snapshot = currentSnapshot();
       if (!analysis.active || analysis.source.config.cpuByOwner[snapshot.currentOwner] !== level) return;
       const move = result?.move || CPU1.chooseMove(Game, snapshot.currentOwner, snapshot.pieces);
@@ -809,14 +843,16 @@
       const immediate = CPUPlus.immediateWinningMoves(Game, snapshot.currentOwner, snapshot.pieces);
       if (legal.length === 1 || immediate.length) {
         analysis.cpuThinking = true;
+        analysis.cpuProgress = null;
         analysis.status = 'CPU+ found an immediate move.';
         renderAnalysis();
         const choices = immediate.length ? immediate : legal;
         const move = choices[Math.floor(Math.random() * choices.length)];
-        return setTimeout(() => { analysis.cpuThinking = false; applyAnalysisMove(move); }, 1000);
+        return setTimeout(() => { analysis.cpuThinking = false; analysis.cpuProgress = null; applyAnalysisMove(move); }, 1000);
       }
     }
     analysis.cpuThinking = true;
+    analysis.cpuProgress = null;
     analysis.status = `${cpuLabel(level)} is calculating…`;
     renderAnalysis();
     const startedAt = performance.now();
@@ -952,6 +988,15 @@
   }, true);
 
   board?.addEventListener('click', handleAnalysisBoardClick);
+
+  window.addEventListener('exit-strategy:cpuplus-progress', (event) => {
+    if (!analysis.active || !analysis.cpuThinking) return;
+    const snapshot = currentSnapshot();
+    if (analysis.source?.config?.cpuByOwner?.[snapshot.currentOwner] !== 'cpuplus') return;
+    analysis.cpuProgress = event.detail || null;
+    renderAnalysisCpuProgress();
+  });
+  window.addEventListener('exit-strategy:best-sequence-option', renderAnalysisCpuProgress);
 
   phaseCard && new MutationObserver(() => {
     installModeImportButton();

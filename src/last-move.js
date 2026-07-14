@@ -15,9 +15,12 @@
   if (!Game || !CPUPlus || !phaseCard || !board || !boardFrame || !sidePanel) return;
 
   const RESET_CREDENTIAL_KEY = 'exit-strategy-cpuplus-reset-credential-v1';
+  const BEST_SEQUENCE_KEY = 'exit-strategy-display-best-sequence';
   const SVG_NS = 'http://www.w3.org/2000/svg';
   let simulationDepth = 0;
   let cpuPlusProgress = null;
+  let displayBestSequence = false;
+  try { displayBestSequence = localStorage.getItem(BEST_SEQUENCE_KEY) === 'true'; } catch (_) {}
   let lastMove = null;
   let overlay = null;
   let shadowLine = null;
@@ -34,7 +37,21 @@
       font-weight: 700;
       font-variant-numeric: tabular-nums;
     }
+    .cpuplus-best-sequence {
+      display: block;
+      margin-top: 7px;
+      padding-left: 22px;
+      color: var(--muted);
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .cpuplus-best-sequence strong,.cpuplus-best-sequence summary{color:var(--text);font-weight:800}
+    .cpuplus-best-sequence summary{cursor:pointer}
+    .cpuplus-best-sequence-body{margin-top:.35rem}
     .password-field[hidden], .last-move-layer[hidden] { display: none !important; }
+    @media(max-width:620px){
+      .cpuplus-depth-status,.cpuplus-best-sequence{padding-left:0}
+    }
   `;
   document.head.appendChild(style);
 
@@ -284,18 +301,98 @@
     window.Worker = WorkerBridge;
   }
 
+  function ensureBestSequenceOption() {
+    if (document.querySelector('#displayBestSequence')) return;
+    const confirmRow = document.querySelector('#confirmMoves')?.closest('.toggle-row');
+    if (!confirmRow) return;
+    const label = document.createElement('label');
+    label.className = 'toggle-row';
+    label.innerHTML = '<span>Display the best sequence</span><input id="displayBestSequence" type="checkbox">';
+    confirmRow.insertAdjacentElement('afterend', label);
+    const input = label.querySelector('input');
+    input.checked = displayBestSequence;
+    input.addEventListener('change', () => {
+      displayBestSequence = input.checked;
+      try { localStorage.setItem(BEST_SEQUENCE_KEY, String(displayBestSequence)); } catch (_) {}
+      updateDepthDisplay();
+      window.dispatchEvent(new CustomEvent('exit-strategy:best-sequence-option', { detail: displayBestSequence }));
+    });
+  }
+
+  function pieceOwner(pieceId) {
+    const value = String(pieceId || '');
+    if (value.startsWith('cyan-')) return 'cyan';
+    if (value.startsWith('magenta-')) return 'magenta';
+    return null;
+  }
+
+  function pieceLabelFromId(pieceId) {
+    const value = String(pieceId || '');
+    if (value.endsWith('-hunter')) return 'Hunter';
+    const match = value.match(/-pawn-(\d+)$/);
+    return match ? `Pawn ${match[1]}` : 'Piece';
+  }
+
+  function defaultOwnerLabel(owner) {
+    const selector = owner === 'cyan' ? '#cyanPlayerIdentity' : '#magentaPlayerIdentity';
+    return document.querySelector(selector)?.textContent.trim() || (owner === 'cyan' ? 'Player 1' : 'Player 2');
+  }
+
+  function formatPrincipalVariation(progress, startTurn = 0, labelForOwner = defaultOwnerLabel) {
+    const line = Array.isArray(progress?.principalVariation) ? progress.principalVariation : [];
+    if (!line.length) return '';
+    const firstMove = line.find((action) => !action.pass);
+    const rootOwner = firstMove?.owner || line[0]?.owner || null;
+    return line.map((action, index) => {
+      const owner = action.owner || pieceOwner(action.pieceId) || rootOwner;
+      const actor = owner === rootOwner ? 'CPU+' : (labelForOwner(owner) || defaultOwnerLabel(owner));
+      const turn = Number(startTurn || 0) + index + 1;
+      if (action.pass) return `${turn}. ${actor}: forced pass`;
+      const piece = pieceLabelFromId(action.pieceId);
+      if (action.exits) return `${turn}. ${actor} ${piece}: ${action.from} → EXIT`;
+      if (action.captureId) return `${turn}. ${actor} ${piece}: ${action.from} × ${action.to} (${pieceLabelFromId(action.captureId)})`;
+      return `${turn}. ${actor} ${piece}: ${action.from} → ${action.to}`;
+    }).join('; ');
+  }
+
+  function createBestSequenceNode(progress, startTurn = 0, labelForOwner = defaultOwnerLabel) {
+    if (!displayBestSequence || !progress?.completedDepth) return null;
+    const text = formatPrincipalVariation(progress, startTurn, labelForOwner);
+    if (!text) return null;
+    const mobile = window.matchMedia('(max-width: 620px)').matches;
+    if (mobile) {
+      const details = document.createElement('details');
+      details.className = 'cpuplus-best-sequence';
+      const summary = document.createElement('summary');
+      summary.textContent = `Best depth-${progress.completedDepth} sequence`;
+      const body = document.createElement('div');
+      body.className = 'cpuplus-best-sequence-body';
+      body.textContent = text;
+      details.append(summary, body);
+      return details;
+    }
+    const node = document.createElement('small');
+    node.className = 'cpuplus-best-sequence';
+    const strong = document.createElement('strong');
+    strong.textContent = `Best depth-${progress.completedDepth} sequence: `;
+    node.append(strong, document.createTextNode(text));
+    return node;
+  }
+
   function depthText(progress) {
     if (!progress) return '';
     if (!progress.completedDepth) return `Searching depth ${progress.searchingDepth || 1}…`;
-    if (!progress.searchingDepth) return `Depth ${progress.completedDepth} completed.`;
-    return `Depth ${progress.completedDepth} completed — searching depth ${progress.searchingDepth}.`;
+    if (!progress.searchingDepth) return `Depth ${progress.completedDepth} fully evaluated.`;
+    return `Depth ${progress.completedDepth} fully evaluated — searching depth ${progress.searchingDepth}.`;
   }
 
   function updateDepthDisplay() {
-    const cpuPlusTurn = phaseCard.textContent.includes('CPU+ is deepening its search');
+    const cpuPlusTurn = !document.body.classList.contains('analysis-mode') && phaseCard.textContent.includes('CPU+ is deepening its search');
     const existing = phaseCard.querySelector('.cpuplus-depth-status');
+    const existingSequence = phaseCard.querySelector('.cpuplus-best-sequence');
     if (!cpuPlusTurn || !cpuPlusProgress) {
-      if (existing) existing.remove();
+      existing?.remove();
+      existingSequence?.remove();
       return;
     }
     const text = depthText(cpuPlusProgress);
@@ -304,7 +401,19 @@
     node.className = 'cpuplus-depth-status';
     if (node.textContent !== text) node.textContent = text;
     if (!existing) phaseCard.appendChild(node);
+    existingSequence?.remove();
+    const startTurn = Number.parseInt(document.querySelector('#turnCounter')?.textContent || '0', 10) || 0;
+    const sequence = createBestSequenceNode(cpuPlusProgress, startTurn);
+    if (sequence) phaseCard.appendChild(sequence);
   }
+
+  ensureBestSequenceOption();
+  window.ExitStrategyCpuProgressUI = {
+    depthText,
+    formatPrincipalVariation,
+    createBestSequenceNode,
+    isBestSequenceEnabled: () => displayBestSequence
+  };
 
   window.addEventListener('exit-strategy:cpuplus-progress', (event) => {
     cpuPlusProgress = event.detail || null;

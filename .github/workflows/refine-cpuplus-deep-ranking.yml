@@ -1,0 +1,37 @@
+name: Refine CPU+ deep search and ranking
+
+on:
+  push:
+    branches:
+      - batch/cpuplus-deep-ranking
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: batch/cpuplus-deep-ranking
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply refinement
+        shell: bash
+        run: |
+          echo 'H4sICCOHVmoCA3JlZmluZS1jcHVwbHVzLWRlZXAtcmFua2luZy5qcwDNVttuGzcQfddXzEMDrRx5fQnSiw23CBIHKFAjgZM2L34QtTsrseaSW5JrWTX87z1DSrLs2ojzUKACbGnJuZw5czjcYR+YQvS6isPjQeVsiNQEOiHPf/XaczG0ruajJgxHx4Omt1XUzmKzM6riD/690qaIfB3H1KkY2dvxerNli1WjpmxGdDMgysEtjBFefMqVZfGYK9IR6YaK7HCSXUYU594tEGVBp947X0zeut7UZF0UBNWcvrtJOW8nKYLn2Hubsh4PbgeGI6muA4AmIL2q32vDn5a2KobBV3vY2r06LP8MwzEN+9j8KFVn+/slIzKWx/iaED5V139x/pJ96SwLLDgUIzr5mW4uLKVPZVj5t13/CV/VvBgdrzcabXWYY+ej6cM5h97EwvbGjMktEGyM7igfuX4DNhtlAq9db48nzwEwWOVP7E85xDN3xdjuvJt5DuHcubRUVBnCbyrC6ONqN5H4KP7B0/A3WX6hG2rx42iTWMpx3Tmr4OwRDRcJ9G6CPKRbOqKvlD7Yqnz49uPvLymHoFw1rMxUVZfDwbMb9w4qMNryZ92y0LbQtnaLMnCUFdfH4r/vJE6PM7palnPl6zN1fRboJR3s7++P7vf42Vj/102XIndjBvwNTf8aSVkOskmr4PflgBO/8Dry00cev2GXhoTMhpYfmxPnp2/enZ2Wbb09Izbm/1Jb3klN3KWdnT9CSYJzZ4cweQMBj1dRg7aauWOr7Qy0LZ2tsdDFucw75pJOrys80mLOlpw1S/xjMjxTJnFNfK1DDIQjoPICpIHobcu1Rm/NcoxUCKbtZaBGzCLcFdTxap8CQyh1IIWsWG8dll+/Xi+Xk29BX9KvNvFf00y1yQaBRD6cEyNfdNvh6YuOc+mWgt5cdZmAKj9j1LNBmck4OEwYf9pAHqMkMCLygnEDOLJAAZkhUh9iJsNzq4QPEWQCkVjF8Wg7NJtXXIfjVZrD/ZSmkcJabXucDVKeSU2DM3gio1sdV8SsBJF4WVVKvjcckuieJYzk6rliJESmqZAR9PWmL4IY+eQZ9xm+Yt8dpULh+YqMm+kKQuArZXqVLugO5zLjX8dwDam61rILU6lceY3ziHwz4SbSfNk5xIwpVpaW6zrozCbO2hR5rYYEWcaLrtkjhjF0MP7h4PuVYzrDouU7RyBByqTFVFBuj/CcIQKzWuICo89eoyNbjkK9V/ZSVr1racF6Npeu+TR5VrpNaNhfZT3ioQE0W4GBynkMI4lAfotmmiq8+2AiTtVUGx2XwtHB/gvag9lijgNPvY0PweC1CMUuKcwFlvQgi0uK3YpV0gfJzVfsl3fumE4iQig2xR1n/1xaripXa8XB6L+xjLOCGffivtY2b0novbw6LZ8YcNuzKuttPd9k3IfHxlva2FMQyTLosLu+MHatutKzVEQpJg/ekXK4lyc0GaTfxdYwlsNJl5gPIZVr5Dg3vXC4EiyqTKdUVAgs0gYZ3GkUYngLQbVrzRIJ7663fLWtr3hVP5zm6dZQAYqIZSsvhoXc+7T39E2095TLw0vz4vFb82IkEW7xN3msF99EbDJGpH8Ayd5XIJ8LAAA=' | base64 -d | gzip -d > /tmp/refine-cpuplus-deep-ranking.js
+          node /tmp/refine-cpuplus-deep-ranking.js
+      - name: Test
+        run: node --test
+      - name: Commit refinement
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/refine-cpuplus-deep-ranking.yml
+          git add -A
+          git commit -m "fix: preserve CPU+ best move at hard stop"
+          git push origin HEAD:batch/cpuplus-deep-ranking

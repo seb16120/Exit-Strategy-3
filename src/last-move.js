@@ -26,6 +26,7 @@
   let shadowLine = null;
   let mainLine = null;
   let drawQueued = false;
+  let depthRefreshQueued = false;
 
   const style = document.createElement('style');
   style.textContent = `
@@ -404,18 +405,19 @@
     if (!existing) phaseCard.appendChild(node);
 
     const startTurn = Number.parseInt(document.querySelector('#turnCounter')?.textContent || '0', 10) || 0;
-    const sequence = createBestSequenceNode(cpuPlusProgress, startTurn);
-    if (!sequence) {
-      existingSequence?.remove();
-      return;
-    }
-
     const signature = JSON.stringify({
       completedDepth: cpuPlusProgress.completedDepth || 0,
       startTurn,
       principalVariation: cpuPlusProgress.principalVariation || []
     });
     if (existingSequence?.dataset.renderSignature === signature) return;
+
+    const sequence = createBestSequenceNode(cpuPlusProgress, startTurn);
+    if (!sequence) {
+      existingSequence?.remove();
+      return;
+    }
+
     sequence.dataset.renderSignature = signature;
     if (existingSequence) existingSequence.replaceWith(sequence);
     else phaseCard.appendChild(sequence);
@@ -434,7 +436,29 @@
     updateDepthDisplay();
   });
 
-  new MutationObserver(updateDepthDisplay).observe(phaseCard, {
+  function isProgressMutationNode(node) {
+    const element = node?.nodeType === 1 ? node : node?.parentElement;
+    return Boolean(element?.matches?.('.cpuplus-depth-status, .cpuplus-best-sequence')
+      || element?.closest?.('.cpuplus-depth-status, .cpuplus-best-sequence'));
+  }
+
+  function queueDepthDisplayRefresh() {
+    if (depthRefreshQueued) return;
+    depthRefreshQueued = true;
+    window.requestAnimationFrame(() => {
+      depthRefreshQueued = false;
+      updateDepthDisplay();
+    });
+  }
+
+  new MutationObserver((mutations) => {
+    const externalMutation = mutations.some((mutation) => {
+      const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
+      if (changedNodes.length && changedNodes.every(isProgressMutationNode)) return false;
+      return !isProgressMutationNode(mutation.target);
+    });
+    if (externalMutation) queueDepthDisplayRefresh();
+  }).observe(phaseCard, {
     childList: true,
     subtree: true,
     characterData: true

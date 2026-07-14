@@ -789,7 +789,7 @@
       finishCpuPlusSetup(owner, null, startedAt);
       return;
     }
-    cpuWorker = new Worker('src/cpuplus-worker.js');
+    cpuWorker = new Worker('src/cpuplus-worker.js?v=20260714-4');
     cpuWorker.onmessage = (event) => {
       const worker = cpuWorker;
       cpuWorker = null;
@@ -1144,7 +1144,7 @@
       }, 1000);
       return;
     }
-    cpuWorker = new Worker('src/cpu3-worker.js');
+    cpuWorker = new Worker('src/cpu3-worker.js?v=20260714-4');
     cpuWorker.onmessage = (event) => {
       const worker = cpuWorker;
       cpuWorker = null;
@@ -1191,7 +1191,7 @@
       finishCpuPlusResult({ move }, owner, startedAt, false);
       return;
     }
-    cpuWorker = new Worker('src/cpuplus-worker.js');
+    cpuWorker = new Worker('src/cpuplus-worker.js?v=20260714-4');
     cpuWorker.onmessage = (event) => {
       const worker = cpuWorker;
       cpuWorker = null;

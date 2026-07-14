@@ -30,6 +30,8 @@ test('progress UI uses fully evaluated wording and optional sequences', () => {
   assert.match(source, /Best depth-/);
   assert.match(source, /renderSignature/);
   assert.match(source, /existingSequence\.replaceWith/);
+  assert.match(source, /isProgressMutationNode/);
+  assert.match(source, /queueDepthDisplayRefresh/);
 });
 
 test('analysis shows CPU thinking and live depth progress', () => {
@@ -90,4 +92,21 @@ test('move history has one explicit move number and side-colored rows', () => {
   assert.match(styles, /list-style: none/);
   assert.match(styles, /border-left-color: var\(--cyan\)/);
   assert.match(styles, /border-left-color: var\(--magenta\)/);
+});
+
+
+test('browser assets are cache-busted and a favicon is installed', () => {
+  const index = read('index.html');
+  assert.match(index, /favicon\.svg\?v=20260714-4/);
+  assert.match(index, /styles\.css\?v=20260714-4/);
+  assert.match(index, /src\/app-v2\.js\?v=20260714-4/);
+  assert.match(index, /src\/last-move\.js\?v=20260714-4/);
+  assert.match(index, /<ul id="history"/);
+  assert.match(read('favicon.svg'), /Exit Strategy 3 favicon/);
+});
+
+test('CPU workers use the current build version', () => {
+  const app = read('src/app-v2.js');
+  assert.match(app, /cpu3-worker\.js\?v=20260714-4/);
+  assert.match(app, /cpuplus-worker\.js\?v=20260714-4/);
 });

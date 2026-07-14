@@ -47,7 +47,7 @@
     button.className = 'secondary-button compact-button';
     button.type = 'button';
     button.textContent = 'Download trained profile';
-    button.title = 'Download a starter CPU+ profile with 14 placements and 45 recorded results.';
+    button.title = 'Download a starter CPU+ profile with 14 placements and 47 recorded results.';
     button.addEventListener('click', () => {
       const link = document.createElement('a');
       link.href = TRAINED_PROFILE_PATH;

@@ -97,16 +97,76 @@ test('move history has one explicit move number and side-colored rows', () => {
 
 test('browser assets are cache-busted and a favicon is installed', () => {
   const index = read('index.html');
-  assert.match(index, /favicon\.svg\?v=20260714-4/);
-  assert.match(index, /styles\.css\?v=20260714-4/);
-  assert.match(index, /src\/app-v2\.js\?v=20260714-4/);
-  assert.match(index, /src\/last-move\.js\?v=20260714-4/);
+  assert.match(index, /favicon\.svg\?v=20260714-5/);
+  assert.match(index, /styles\.css\?v=20260714-5/);
+  assert.match(index, /src\/app-v2\.js\?v=20260714-5/);
+  assert.match(index, /src\/last-move\.js\?v=20260714-5/);
   assert.match(index, /<ul id="history"/);
   assert.match(read('favicon.svg'), /Exit Strategy 3 favicon/);
 });
 
 test('CPU workers use the current build version', () => {
   const app = read('src/app-v2.js');
-  assert.match(app, /cpu3-worker\.js\?v=20260714-4/);
-  assert.match(app, /cpuplus-worker\.js\?v=20260714-4/);
+  assert.match(app, /cpu3-worker\.js\?v=20260714-5/);
+  assert.match(app, /cpuplus-worker\.js\?v=20260714-5/);
+});
+
+
+test('CPU+ non-timed search uses depth, time, stability and absolute limits', () => {
+  const cpuplus = require('../src/cpuplus.js');
+  const app = read('src/app-v2.js');
+  const worker = read('src/cpuplus-worker-v2.js');
+  assert.equal(cpuplus.DEEP_MIN_DEPTH, 12);
+  assert.equal(cpuplus.DEEP_MIN_MS, 90000);
+  assert.equal(cpuplus.DEEP_STABLE_DEPTHS, 3);
+  assert.equal(cpuplus.DEEP_MAX_DEPTH, 20);
+  assert.equal(cpuplus.DEEP_HARD_MAX_MS, 300000);
+  assert.match(app, /Play best fully evaluated move now/);
+  assert.match(app, /stopWhenStable: true/);
+  assert.match(worker, /stableDepthCount/);
+  assert.match(worker, /stopReason = 'max-time'/);
+});
+
+test('CPU+ placement lottery ranks tried setups and shares the remainder equally', () => {
+  const cpuplus = require('../src/cpuplus.js');
+  const candidates = [
+    { key: 'first|H:A2|P:B1,B2,B3,B5,B6', baseScore: 1 },
+    { key: 'first|H:A3|P:B1,B2,B3,B5,B6', baseScore: 1 },
+    { key: 'first|H:A4|P:B1,B2,B3,B5,B6', baseScore: 1 },
+    { key: 'first|H:A2|P:C1,C2,C3,C5,C6', baseScore: 1 }
+  ];
+  const database = cpuplus.emptyDatabase();
+  database.placements[candidates[0].key] = { weightedScore: 8, weightedGames: 10, rawGames: 10, wins: 8, draws: 0, losses: 2 };
+  database.placements[candidates[1].key] = { weightedScore: 0.66, weightedGames: 0.66, rawGames: 1, wins: 1, draws: 0, losses: 0 };
+  const lottery = cpuplus.buildPlacementLottery(candidates, database);
+  const known = lottery.entries.filter((entry) => entry.rank);
+  const unknown = lottery.entries.filter((entry) => !entry.rank);
+  assert.equal(known[0].probability, 0.1);
+  assert.equal(known[1].probability, 0.05);
+  assert.equal(unknown.length, 2);
+  assert.ok(Math.abs(unknown[0].probability - 0.425) < 1e-12);
+  assert.equal(unknown[0].probability, unknown[1].probability);
+  assert.ok(Math.abs(lottery.entries.reduce((sum, entry) => sum + entry.probability, 0) - 1) < 1e-12);
+});
+
+test('the last untried placement may become more likely than rank one', () => {
+  const cpuplus = require('../src/cpuplus.js');
+  const candidates = Array.from({ length: 1716 }, (_, index) => ({ key: `first|candidate-${index}`, baseScore: 1716 - index }));
+  const database = cpuplus.emptyDatabase();
+  candidates.slice(0, -1).forEach((candidate, index) => {
+    database.placements[candidate.key] = {
+      weightedScore: 1,
+      weightedGames: 2 + index / 10000,
+      rawGames: 1,
+      wins: 1,
+      draws: 0,
+      losses: 0
+    };
+  });
+  const lottery = cpuplus.buildPlacementLottery(candidates, database);
+  const unknown = lottery.entries.find((entry) => !entry.rank);
+  const rankOne = lottery.entries.find((entry) => entry.rank === 1);
+  assert.ok(unknown.probability > 0.19);
+  assert.equal(rankOne.probability, 0.1);
+  assert.ok(unknown.probability > rankOne.probability);
 });

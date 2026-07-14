@@ -282,3 +282,7 @@ h2 { margin-bottom: 12px; }
   .history-card { grid-column: auto; }
   .setup-actions > button { flex: 1 1 145px; }
 }
+
+
+.cpuplus-play-now { margin-top: .7rem; }
+@media (max-width: 620px) { .cpuplus-play-now { width: 100%; } }

@@ -383,8 +383,11 @@
   function depthText(progress) {
     if (!progress) return '';
     if (!progress.completedDepth) return `Searching depth ${progress.searchingDepth || 1}…`;
-    if (!progress.searchingDepth) return `Depth ${progress.completedDepth} fully evaluated.`;
-    return `Depth ${progress.completedDepth} fully evaluated — searching depth ${progress.searchingDepth}.`;
+    const stability = progress.stopWhenStable && progress.stableDepthCount
+      ? ` Best first move stable for ${progress.stableDepthCount}/${progress.stableDepths || 3} completed depths.`
+      : '';
+    if (!progress.searchingDepth) return `Depth ${progress.completedDepth} fully evaluated.${stability}`;
+    return `Depth ${progress.completedDepth} fully evaluated — searching depth ${progress.searchingDepth}.${stability}`;
   }
 
   function updateDepthDisplay() {

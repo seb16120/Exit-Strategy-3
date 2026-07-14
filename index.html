@@ -6,12 +6,12 @@
   <meta name="description" content="Exit Strategy 3 — an abstract strategy game for local play, versus CPU1, CPU3 or CPU+, and CPU matches.">
   <meta name="theme-color" content="#17191d">
   <title>Exit Strategy 3</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260714-4">
-  <link rel="stylesheet" href="styles.css?v=20260714-4">
-  <link rel="stylesheet" href="cpu.css?v=20260714-4">
-  <link rel="stylesheet" href="last-move.css?v=20260714-4">
-  <link rel="stylesheet" href="advanced.css?v=20260714-4">
-  <link rel="stylesheet" href="cpuplus.css?v=20260714-4">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260714-5">
+  <link rel="stylesheet" href="styles.css?v=20260714-5">
+  <link rel="stylesheet" href="cpu.css?v=20260714-5">
+  <link rel="stylesheet" href="last-move.css?v=20260714-5">
+  <link rel="stylesheet" href="advanced.css?v=20260714-5">
+  <link rel="stylesheet" href="cpuplus.css?v=20260714-5">
 </head>
 <body>
   <header class="site-header">
@@ -193,7 +193,7 @@
         <h3>CPU3</h3>
         <p>CPU3 uses a scored logical setup and searches three plies: CPU move, opponent reply, CPU reply. It thinks for at least one second and no longer than 45 seconds.</p>
         <h3>CPU+</h3>
-        <p>CPU+ deepens its minimax search for at least 30 seconds and at most 55 seconds. It may move after one second when it has only one legal move or a move wins the game immediately. Its setup receives five extra seconds of analysis and uses local, weighted placement results.</p>
+        <p>In timed games, CPU+ searches for 30 to 55 seconds. Without a clock, it seeks at least depth 12 and 1 minute 30 seconds, then stops after the same first move remains best for three completed depths. Depth 20 and five minutes are absolute limits. A sole legal move or an immediate win still uses the one-second fast path. Placement choice ranks every tried formation separately for first and second player, while sharing the remaining probability equally among untried formations.</p>
         <h3>CPU vs CPU</h3>
         <p>Select CPU1, CPU3 or CPU+ independently for Player 1 and Player 2. The match can be paused, resumed, or advanced one move at a time.</p>
         <h3>Timed game</h3>
@@ -208,18 +208,18 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="src/game.js?v=20260714-4"></script>
-  <script src="src/cpu.js?v=20260714-4"></script>
-  <script src="src/cpu3.js?v=20260714-4"></script>
-  <script src="src/cpuplus.js?v=20260714-4"></script>
-  <script src="src/timer.js?v=20260714-4"></script>
-  <script src="src/app-v2.js?v=20260714-4"></script>
-  <script src="src/last-move.js?v=20260714-4"></script>
-  <script src="src/cpuplus-data-tools.js?v=20260714-4"></script>
-  <script src="src/cpu-series-tools.js?v=20260714-4"></script>
-  <script src="src/game-review-tools.js?v=20260714-4"></script>
-  <script src="src/analysis-help-coordinates.js?v=20260714-4"></script>
-  <script src="src/cpuplus-merge-version.js?v=20260714-4"></script>
-  <script src="src/pre-game-navigation.js?v=20260714-4"></script>
+  <script src="src/game.js?v=20260714-5"></script>
+  <script src="src/cpu.js?v=20260714-5"></script>
+  <script src="src/cpu3.js?v=20260714-5"></script>
+  <script src="src/cpuplus.js?v=20260714-5"></script>
+  <script src="src/timer.js?v=20260714-5"></script>
+  <script src="src/app-v2.js?v=20260714-5"></script>
+  <script src="src/last-move.js?v=20260714-5"></script>
+  <script src="src/cpuplus-data-tools.js?v=20260714-5"></script>
+  <script src="src/cpu-series-tools.js?v=20260714-5"></script>
+  <script src="src/game-review-tools.js?v=20260714-5"></script>
+  <script src="src/analysis-help-coordinates.js?v=20260714-5"></script>
+  <script src="src/cpuplus-merge-version.js?v=20260714-5"></script>
+  <script src="src/pre-game-navigation.js?v=20260714-5"></script>
 </body>
 </html>

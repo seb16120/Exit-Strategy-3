@@ -85,81 +85,8 @@ function randomSetupDescriptor(owner, occupied, random) {
 }
 
 function createLearnedSetup(owner, database, options = {}) {
-  const random = options.random || Math.random;
-  const analysisTimeMs = Math.max(0, options.analysisTimeMs ?? CPUPlus.SETUP_ANALYSIS_MS ?? 5000);
-  const startedAt = Date.now();
-  const deadline = startedAt + analysisTimeMs;
-  const cleanDatabase = CPUPlus.sanitizeDatabase(database);
-  const totalWeightedGames = Object.values(cleanDatabase.placements)
-    .reduce((total, stat) => total + stat.weightedGames, 0);
-  const candidates = [];
-
-  for (const hunterCell of Game.setupCells(owner, 'hunter')) {
-    const available = Game.setupCells(owner, 'pawn').filter((coord) => coord !== hunterCell);
-    for (const pawnCells of combinations(available, 5)) {
-      const candidatePieces = Game.createPieces();
-      clearAllPieces(candidatePieces);
-      CPUPlus.applySetup(Game, owner, candidatePieces, { hunterCell, pawnCells });
-      const key = candidateKey(owner, hunterCell, pawnCells);
-      candidates.push({
-        hunterCell,
-        pawnCells,
-        key,
-        baseScore: CPU3.setupScore(Game, owner, candidatePieces),
-        simulationTotal: 0,
-        simulations: 0
-      });
-    }
-  }
-
-  candidates.sort((a, b) => {
-    const aScore = a.baseScore + candidateLearningBonus(cleanDatabase, a.key, totalWeightedGames);
-    const bScore = b.baseScore + candidateLearningBonus(cleanDatabase, b.key, totalWeightedGames);
-    return bScore - aScore;
-  });
-
-  const simulationPool = candidates.slice(0, Math.min(240, candidates.length));
-  let simulations = 0;
-  let cursor = 0;
-  while (Date.now() < deadline && simulationPool.length > 0) {
-    const candidate = simulationPool[cursor % simulationPool.length];
-    cursor += 1;
-    const simulated = Game.createPieces();
-    clearAllPieces(simulated);
-    CPUPlus.applySetup(Game, owner, simulated, candidate);
-    const occupied = new Set([candidate.hunterCell, ...candidate.pawnCells]);
-    const opponent = Game.otherOwner(owner);
-    const opponentSetup = randomSetupDescriptor(opponent, occupied, random);
-    if (opponentSetup.pawnCells.length < 5) continue;
-    CPUPlus.applySetup(Game, opponent, simulated, opponentSetup);
-    const score = CPU3.evaluatePosition(Game, owner, simulated);
-    candidate.simulationTotal += clamp(score, -200000, 200000);
-    candidate.simulations += 1;
-    simulations += 1;
-  }
-
-  candidates.forEach((candidate) => {
-    const simulationAverage = candidate.simulations
-      ? candidate.simulationTotal / candidate.simulations
-      : 0;
-    candidate.finalScore = candidate.baseScore
-      + candidateLearningBonus(cleanDatabase, candidate.key, totalWeightedGames)
-      + simulationAverage * 0.035
-      + random() * 0.001;
-  });
-  candidates.sort((a, b) => b.finalScore - a.finalScore);
-
-  const pool = candidates.slice(0, Math.min(4, candidates.length));
-  const selected = random() < 0.82 ? pool[0] : pool[Math.floor(random() * pool.length)];
-  return {
-    key: selected.key,
-    hunterCell: selected.hunterCell,
-    pawnCells: selected.pawnCells.slice(),
-    score: selected.finalScore,
-    candidates: candidates.length,
-    simulations,
-    elapsedMs: Date.now() - startedAt
-  };
+  const pieces = Game.createPieces();
+  return CPUPlus.createLearnedSetup(Game, owner, pieces, database, options);
 }
 
 function moveOrderingScore(rootOwner, currentOwner, pieces, move) {
@@ -315,7 +242,7 @@ function searchDepth(owner, pieces, depth, context) {
     }
     alpha = Math.max(alpha, bestScore);
   }
-  const move = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+  const move = bestMoves[0];
   return {
     move,
     score: bestScore,
@@ -332,13 +259,22 @@ function immediateWinningMoves(owner, pieces) {
   });
 }
 
+function moveSignature(move) {
+  if (!move) return '';
+  return [move.pieceId, move.from, move.to, move.captureId || '', move.exits ? 'exit' : 'board'].join('|');
+}
+
 function searchMove(owner, pieces, options = {}) {
   const maxDepth = Math.max(1, Math.min(CPUPlus.MAX_DEPTH || 64, options.maxDepth || 64));
-  const maxTimeMs = Math.max(10, Math.min(CPUPlus.MOVE_SEARCH_MS || 54000, options.maxTimeMs || 54000));
+  const maxTimeMs = Math.max(10, Math.min(CPUPlus.DEEP_HARD_MAX_MS || 300000, options.maxTimeMs || CPUPlus.MOVE_SEARCH_MS || 54000));
+  const minDepth = Math.max(0, Math.min(maxDepth, options.minDepth || 0));
+  const minTimeMs = Math.max(0, Math.min(maxTimeMs, options.minTimeMs || 0));
+  const stableDepths = Math.max(1, options.stableDepths || CPUPlus.DEEP_STABLE_DEPTHS || 3);
+  const stopWhenStable = Boolean(options.stopWhenStable);
   const startedAt = Date.now();
   const context = { deadline: startedAt + maxTimeMs, cache: new Map(), bestMoveCache: new Map(), nodes: 0 };
   const legalMoves = orderedMoves(owner, owner, pieces);
-  if (!legalMoves.length) return { move: null, completedDepth: 0, nodes: 0, elapsedMs: 0, timedOut: false };
+  if (!legalMoves.length) return { move: null, completedDepth: 0, nodes: 0, elapsedMs: 0, timedOut: false, stopReason: 'no-move' };
 
   const immediateWins = immediateWinningMoves(owner, pieces);
   if (legalMoves.length === 1 || immediateWins.length) {
@@ -349,14 +285,32 @@ function searchMove(owner, pieces, options = {}) {
       nodes: 0,
       elapsedMs: Date.now() - startedAt,
       timedOut: false,
+      stopReason: 'fast-path',
       fastPath: immediateWins.length ? 'win' : 'only-move'
     };
   }
 
-  let best = { move: legalMoves[0], score: -Infinity };
+  let best = { move: legalMoves[0], score: -Infinity, principalVariation: [] };
   let completedDepth = 0;
   let timedOut = false;
-  self.postMessage({ ok: true, kind: 'progress', progress: { completedDepth: 0, searchingDepth: 1, nodes: 0, elapsedMs: 0 } });
+  let stableDepthCount = 0;
+  let previousSignature = '';
+  let stopReason = null;
+
+  self.postMessage({
+    ok: true,
+    kind: 'progress',
+    progress: {
+      completedDepth: 0,
+      searchingDepth: 1,
+      nodes: 0,
+      elapsedMs: 0,
+      minDepth,
+      minTimeMs,
+      stableDepths,
+      stopWhenStable
+    }
+  });
 
   for (let depth = 1; depth <= maxDepth; depth += 1) {
     context.cache.clear();
@@ -365,20 +319,38 @@ function searchMove(owner, pieces, options = {}) {
       const result = searchDepth(owner, pieces, depth, context);
       if (result.move) best = result;
       completedDepth = depth;
+      const signature = moveSignature(result.move);
+      stableDepthCount = signature && signature === previousSignature ? stableDepthCount + 1 : 1;
+      previousSignature = signature;
+      const elapsedMs = Date.now() - startedAt;
+      const reachedMaxDepth = depth >= maxDepth;
+      const stableReady = stopWhenStable
+        && depth >= minDepth
+        && elapsedMs >= minTimeMs
+        && stableDepthCount >= stableDepths;
+      if (reachedMaxDepth) stopReason = 'max-depth';
+      else if (stableReady) stopReason = 'stable';
       self.postMessage({
         ok: true,
         kind: 'progress',
         progress: {
           completedDepth,
-          searchingDepth: depth < maxDepth ? depth + 1 : null,
+          searchingDepth: stopReason ? null : depth + 1,
           nodes: context.nodes,
-          elapsedMs: Date.now() - startedAt,
-          principalVariation: result.principalVariation || []
+          elapsedMs,
+          principalVariation: result.principalVariation || [],
+          minDepth,
+          minTimeMs,
+          stableDepths,
+          stableDepthCount,
+          stopWhenStable
         }
       });
+      if (stopReason) break;
     } catch (error) {
       if (!(error instanceof SearchTimeout)) throw error;
       timedOut = true;
+      stopReason = 'max-time';
       break;
     }
   }
@@ -391,6 +363,8 @@ function searchMove(owner, pieces, options = {}) {
     elapsedMs: Date.now() - startedAt,
     timedOut,
     principalVariation: best.principalVariation || [],
+    stableDepthCount,
+    stopReason,
     fastPath: null
   };
 }
@@ -412,7 +386,11 @@ self.onmessage = (event) => {
       kind: 'move',
       result: searchMove(payload.owner, payload.pieces, {
         maxDepth: payload.maxDepth,
-        maxTimeMs: payload.maxTimeMs
+        maxTimeMs: payload.maxTimeMs,
+        minDepth: payload.minDepth,
+        minTimeMs: payload.minTimeMs,
+        stableDepths: payload.stableDepths,
+        stopWhenStable: payload.stopWhenStable
       })
     });
   } catch (error) {

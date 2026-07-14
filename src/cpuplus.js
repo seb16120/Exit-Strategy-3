@@ -14,6 +14,11 @@
   const MOVE_MIN_MS = 30000;
   const MOVE_SEARCH_MS = 54000;
   const MOVE_HARD_MAX_MS = 55000;
+  const DEEP_MIN_DEPTH = 12;
+  const DEEP_MIN_MS = 90000;
+  const DEEP_STABLE_DEPTHS = 3;
+  const DEEP_MAX_DEPTH = 20;
+  const DEEP_HARD_MAX_MS = 300000;
   const SETUP_ANALYSIS_MS = 5000;
   const SETUP_VISIBLE_MIN_MS = 6000;
   const MAX_DEPTH = 64;
@@ -278,93 +283,123 @@
     return { hunterCell, pawnCells };
   }
 
-  function candidateLearningBonus(database, key, totalWeightedGames) {
-    const stat = placementStat(database, key);
-    const smoothedRate = (stat.weightedScore + 2) / (stat.weightedGames + 4);
-    const confidence = stat.weightedGames / (stat.weightedGames + 8);
-    const exploitation = (smoothedRate - 0.5) * 4200 * confidence;
-    const exploration = Math.sqrt(Math.log(totalWeightedGames + 2) / (stat.weightedGames + 1)) * 260;
-    return exploitation + exploration;
+  function placementRankingScore(stat, baseScore = 0) {
+    const weightedGames = Math.max(0, Number(stat?.weightedGames) || 0);
+    const weightedScore = clamp(Number(stat?.weightedScore) || 0, 0, weightedGames);
+    const alpha = 2 + weightedScore;
+    const beta = 2 + weightedGames - weightedScore;
+    const mean = alpha / (alpha + beta);
+    const uncertainty = Math.sqrt((mean * (1 - mean)) / (weightedGames + 5));
+    const conservativeRate = mean - 0.75 * uncertainty;
+    return conservativeRate * 1000000
+      + Math.log1p(weightedGames) * 1000
+      + Number(baseScore || 0) * 0.01;
+  }
+
+  function buildPlacementLottery(candidates, database) {
+    const clean = sanitizeDatabase(database);
+    const known = [];
+    const unknown = [];
+
+    candidates.forEach((candidate) => {
+      const stat = clean.placements[candidate.key];
+      if (stat && stat.rawGames > 0) {
+        known.push({
+          ...candidate,
+          stat,
+          rankingScore: placementRankingScore(stat, candidate.baseScore)
+        });
+      } else {
+        unknown.push({ ...candidate, stat: null, rankingScore: null });
+      }
+    });
+
+    known.sort((a, b) => b.rankingScore - a.rankingScore
+      || b.stat.weightedGames - a.stat.weightedGames
+      || a.key.localeCompare(b.key));
+
+    let knownMass = 0;
+    known.forEach((candidate, index) => {
+      candidate.rank = index + 1;
+      candidate.probability = 0.1 / candidate.rank;
+      knownMass += candidate.probability;
+    });
+
+    if (unknown.length > 0) {
+      const unknownProbability = Math.max(0, 1 - knownMass) / unknown.length;
+      unknown.forEach((candidate) => {
+        candidate.rank = null;
+        candidate.probability = unknownProbability;
+      });
+    } else if (knownMass > 0) {
+      known.forEach((candidate) => {
+        candidate.probability /= knownMass;
+      });
+      knownMass = 1;
+    }
+
+    const entries = known.concat(unknown);
+    const totalProbability = entries.reduce((total, candidate) => total + candidate.probability, 0);
+    if (entries.length && Math.abs(totalProbability - 1) > 1e-12) {
+      entries[entries.length - 1].probability += 1 - totalProbability;
+    }
+
+    return {
+      entries,
+      knownCount: known.length,
+      unknownCount: unknown.length
+    };
+  }
+
+  function choosePlacementFromLottery(lottery, random = Math.random) {
+    const entries = lottery?.entries || [];
+    if (!entries.length) return null;
+    const target = clamp(Number(random()) || 0, 0, 1 - Number.EPSILON);
+    let cumulative = 0;
+    for (const candidate of entries) {
+      cumulative += candidate.probability;
+      if (target < cumulative) return candidate;
+    }
+    return entries[entries.length - 1];
   }
 
   function createLearnedSetup(Game, owner, pieces, database, options = {}) {
     const random = options.random || Math.random;
-    const analysisTimeMs = Math.max(0, options.analysisTimeMs ?? SETUP_ANALYSIS_MS);
     const startedAt = Date.now();
-    const deadline = startedAt + analysisTimeMs;
-    const hunterCells = Game.setupCells(owner, 'hunter');
-    const pawnZone = Game.setupCells(owner, 'pawn');
     const cleanDatabase = sanitizeDatabase(database);
-    const totalWeightedGames = Object.values(cleanDatabase.placements)
-      .reduce((total, stat) => total + stat.weightedGames, 0);
     const candidates = [];
 
-    for (const hunterCell of hunterCells) {
-      const available = pawnZone.filter((coord) => coord !== hunterCell);
+    for (const hunterCell of Game.setupCells(owner, 'hunter')) {
+      const available = Game.setupCells(owner, 'pawn').filter((coord) => coord !== hunterCell);
       for (const pawnCells of combinations(available, 5)) {
-        const candidatePieces = isolatedCandidatePieces(Game, owner, hunterCell, pawnCells);
         const key = candidateKey(owner, hunterCell, pawnCells);
-        candidates.push({
-          hunterCell,
-          pawnCells,
-          key,
-          baseScore: CPU3.setupScore(Game, owner, candidatePieces),
-          simulationTotal: 0,
-          simulations: 0
-        });
+        const stat = cleanDatabase.placements[key];
+        let baseScore = 0;
+        if (stat && stat.rawGames > 0) {
+          const candidatePieces = isolatedCandidatePieces(Game, owner, hunterCell, pawnCells);
+          baseScore = CPU3.setupScore(Game, owner, candidatePieces);
+        }
+        candidates.push({ hunterCell, pawnCells, key, baseScore });
       }
     }
 
-    candidates.sort((a, b) => {
-      const scoreA = a.baseScore + candidateLearningBonus(cleanDatabase, a.key, totalWeightedGames);
-      const scoreB = b.baseScore + candidateLearningBonus(cleanDatabase, b.key, totalWeightedGames);
-      return scoreB - scoreA;
-    });
-
-    const simulationPool = candidates.slice(0, Math.min(240, candidates.length));
-    let simulations = 0;
-    let cursor = 0;
-    while (Date.now() < deadline && simulationPool.length > 0) {
-      const candidate = simulationPool[cursor % simulationPool.length];
-      cursor += 1;
-      const simulated = Game.createPieces();
-      clearAllPieces(simulated);
-      applySetup(Game, owner, simulated, candidate);
-      const occupied = new Set([candidate.hunterCell, ...candidate.pawnCells]);
-      const opponent = Game.otherOwner(owner);
-      const opponentSetup = randomSetupDescriptor(Game, opponent, occupied, random);
-      if (opponentSetup.pawnCells.length < 5) continue;
-      applySetup(Game, opponent, simulated, opponentSetup);
-      const score = CPU3.evaluatePosition(Game, owner, simulated);
-      candidate.simulationTotal += clamp(score, -200000, 200000);
-      candidate.simulations += 1;
-      simulations += 1;
-    }
-
-    candidates.forEach((candidate) => {
-      const simulationAverage = candidate.simulations > 0
-        ? candidate.simulationTotal / candidate.simulations
-        : 0;
-      candidate.finalScore = candidate.baseScore
-        + candidateLearningBonus(cleanDatabase, candidate.key, totalWeightedGames)
-        + simulationAverage * 0.035
-        + random() * 0.001;
-    });
-    candidates.sort((a, b) => b.finalScore - a.finalScore);
-
-    const pool = candidates.slice(0, Math.min(12, candidates.length));
-    const selected = random() < 0.82
-      ? pool[0]
-      : pool[Math.floor(random() * pool.length)];
+    const lottery = buildPlacementLottery(candidates, cleanDatabase);
+    const selected = choosePlacementFromLottery(lottery, random);
+    if (!selected) return null;
     applySetup(Game, owner, pieces, selected);
 
     return {
       key: selected.key,
       hunterCell: selected.hunterCell,
       pawnCells: selected.pawnCells.slice(),
-      score: selected.finalScore,
+      score: selected.rankingScore,
+      rank: selected.rank,
+      known: Boolean(selected.stat),
+      selectionProbability: selected.probability,
       candidates: candidates.length,
-      simulations,
+      knownPlacements: lottery.knownCount,
+      unknownPlacements: lottery.unknownCount,
+      simulations: 0,
       elapsedMs: Date.now() - startedAt
     };
   }
@@ -494,20 +529,29 @@
       alpha = Math.max(alpha, bestScore);
     }
     return {
-      move: bestMoves[Math.floor(random() * bestMoves.length)],
+      move: bestMoves[0],
       score: bestScore
     };
+  }
+
+  function moveSignature(move) {
+    if (!move) return '';
+    return [move.pieceId, move.from, move.to, move.captureId || '', move.exits ? 'exit' : 'board'].join('|');
   }
 
   function searchMove(Game, owner, pieces, options = {}) {
     const random = options.random || Math.random;
     const maxDepth = Math.max(1, Math.min(MAX_DEPTH, options.maxDepth || MAX_DEPTH));
-    const maxTimeMs = Math.max(10, Math.min(MOVE_SEARCH_MS, options.maxTimeMs || MOVE_SEARCH_MS));
+    const maxTimeMs = Math.max(10, Math.min(DEEP_HARD_MAX_MS, options.maxTimeMs || MOVE_SEARCH_MS));
+    const minDepth = Math.max(0, Math.min(maxDepth, options.minDepth || 0));
+    const minTimeMs = Math.max(0, Math.min(maxTimeMs, options.minTimeMs || 0));
+    const stableDepths = Math.max(1, options.stableDepths || DEEP_STABLE_DEPTHS);
+    const stopWhenStable = Boolean(options.stopWhenStable);
     const startedAt = Date.now();
     const context = { deadline: startedAt + maxTimeMs, cache: new Map(), nodes: 0 };
     const legalMoves = orderedMoves(Game, owner, owner, pieces);
     if (legalMoves.length === 0) {
-      return { move: null, completedDepth: 0, nodes: 0, elapsedMs: 0, timedOut: false };
+      return { move: null, completedDepth: 0, nodes: 0, elapsedMs: 0, timedOut: false, stopReason: 'no-move' };
     }
     const immediateWins = immediateWinningMoves(Game, owner, pieces);
     if (legalMoves.length === 1 || immediateWins.length > 0) {
@@ -518,6 +562,7 @@
         nodes: 0,
         elapsedMs: Date.now() - startedAt,
         timedOut: false,
+        stopReason: 'fast-path',
         fastPath: immediateWins.length > 0 ? 'win' : 'only-move'
       };
     }
@@ -525,15 +570,35 @@
     let best = { move: legalMoves[0], score: -Infinity };
     let completedDepth = 0;
     let timedOut = false;
+    let stableDepthCount = 0;
+    let previousSignature = '';
+    let stopReason = null;
+
     for (let depth = 1; depth <= maxDepth; depth += 1) {
       context.cache.clear();
       try {
         const result = searchDepth(Game, owner, pieces, depth, context, random);
         if (result.move) best = result;
         completedDepth = depth;
+        const signature = moveSignature(result.move);
+        stableDepthCount = signature && signature === previousSignature ? stableDepthCount + 1 : 1;
+        previousSignature = signature;
+        const elapsedMs = Date.now() - startedAt;
+        if (depth >= maxDepth) {
+          stopReason = 'max-depth';
+          break;
+        }
+        if (stopWhenStable
+          && depth >= minDepth
+          && elapsedMs >= minTimeMs
+          && stableDepthCount >= stableDepths) {
+          stopReason = 'stable';
+          break;
+        }
       } catch (error) {
         if (!(error instanceof SearchTimeout)) throw error;
         timedOut = true;
+        stopReason = 'max-time';
         break;
       }
     }
@@ -544,6 +609,8 @@
       nodes: context.nodes,
       elapsedMs: Date.now() - startedAt,
       timedOut,
+      stableDepthCount,
+      stopReason,
       fastPath: null
     };
   }
@@ -574,6 +641,11 @@
     MOVE_MIN_MS,
     MOVE_SEARCH_MS,
     MOVE_HARD_MAX_MS,
+    DEEP_MIN_DEPTH,
+    DEEP_MIN_MS,
+    DEEP_STABLE_DEPTHS,
+    DEEP_MAX_DEPTH,
+    DEEP_HARD_MAX_MS,
     SETUP_ANALYSIS_MS,
     SETUP_VISIBLE_MIN_MS,
     MAX_DEPTH,
@@ -593,6 +665,9 @@
     recordResult,
     summary,
     applySetup,
+    placementRankingScore,
+    buildPlacementLottery,
+    choosePlacementFromLottery,
     createLearnedSetup,
     immediateWinningMoves,
     searchMove,

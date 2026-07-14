@@ -76,6 +76,8 @@
   let clockInterval = null;
   let toastTimer = null;
   let queuedReplayPieces = null;
+  let cpuPlusLatestProgress = null;
+  let activeCpuPlusSearch = null;
 
   const state = {
     phase: 'mode',
@@ -223,6 +225,8 @@
     window.clearTimeout(scheduledTimer);
     scheduledTimer = null;
     clearCpuSearch();
+    cpuPlusLatestProgress = null;
+    activeCpuPlusSearch = null;
     state.cpuThinking = false;
   }
 
@@ -536,14 +540,23 @@
       let status = 'Select one of your pieces, then select a highlighted destination.';
       if (level === 'cpu1') status = 'CPU1 is checking every legal reply one move ahead.';
       if (level === 'cpu3') status = 'CPU3 is searching up to three plies, with a 45-second maximum.';
-      if (level === 'cpuplus') status = 'CPU+ is deepening its search for at least 30 seconds and at most 55 seconds.';
+      if (level === 'cpuplus') status = state.timedGame
+        ? 'CPU+ is deepening its search for at least 30 seconds and at most 55 seconds.'
+        : 'CPU+ searches for at least depth 12 and 1:30, then stops after three stable depths. Absolute limits: depth 20 or 5:00.';
       const paused = isCpuDuel() && state.cpuMatchPaused && !state.cpuStepOnce;
+      const showPlayNow = level === 'cpuplus' && cpuTurn && state.cpuThinking && !state.timedGame && !paused;
       card.innerHTML = `
         <div class="turn-banner">
           <span class="turn-dot ${state.currentOwner}"></span>
           <div><p class="eyebrow">CURRENT TURN</p><h2>${ownerLabel(state.currentOwner)} — ${personLabel(state.currentOwner)}</h2></div>
         </div>
-        <p>${paused ? 'CPU match paused.' : (cpuTurn ? `<span class="thinking-line"><span class="thinking-dot"></span>${status}</span>` : status)}</p>`;
+        <p>${paused ? 'CPU match paused.' : (cpuTurn ? `<span class="thinking-line"><span class="thinking-dot"></span>${status}</span>` : status)}</p>
+        ${showPlayNow ? '<button id="cpuPlusPlayNowButton" class="secondary-button cpuplus-play-now" type="button" disabled>Play best fully evaluated move now</button>' : ''}`;
+      const playNow = $('#cpuPlusPlayNowButton');
+      if (playNow) {
+        playNow.addEventListener('click', requestCpuPlusBestNow);
+        updateCpuPlusPlayNowButton();
+      }
     }
   }
 
@@ -789,7 +802,7 @@
       finishCpuPlusSetup(owner, null, startedAt);
       return;
     }
-    cpuWorker = new Worker('src/cpuplus-worker.js?v=20260714-4');
+    cpuWorker = new Worker('src/cpuplus-worker.js?v=20260714-5');
     cpuWorker.onmessage = (event) => {
       const worker = cpuWorker;
       cpuWorker = null;
@@ -1144,7 +1157,7 @@
       }, 1000);
       return;
     }
-    cpuWorker = new Worker('src/cpu3-worker.js?v=20260714-4');
+    cpuWorker = new Worker('src/cpu3-worker.js?v=20260714-5');
     cpuWorker.onmessage = (event) => {
       const worker = cpuWorker;
       cpuWorker = null;
@@ -1164,8 +1177,33 @@
     }, 45500);
   }
 
-  function finishCpuPlusResult(result, owner, startedAt, fastPath = false) {
-    const minimum = fastPath ? 1000 : CPUPlus.MOVE_MIN_MS;
+  function progressRootMove(progress) {
+    const action = Array.isArray(progress?.principalVariation) ? progress.principalVariation[0] : null;
+    if (!action || action.pass || !action.pieceId) return null;
+    return { ...action };
+  }
+
+  function updateCpuPlusPlayNowButton() {
+    const button = $('#cpuPlusPlayNowButton');
+    if (!button) return;
+    button.disabled = !activeCpuPlusSearch || !progressRootMove(cpuPlusLatestProgress);
+  }
+
+  function requestCpuPlusBestNow() {
+    if (state.timedGame || !activeCpuPlusSearch || state.finished || cpuLevel(state.currentOwner) !== 'cpuplus') return;
+    const move = progressRootMove(cpuPlusLatestProgress);
+    if (!move) return;
+    const { owner, startedAt } = activeCpuPlusSearch;
+    activeCpuPlusSearch = null;
+    cpuPlusLatestProgress = null;
+    clearCpuSearch();
+    finishCpuPlusResult({ move, stopReason: 'player-request' }, owner, startedAt, false, true);
+  }
+
+  function finishCpuPlusResult(result, owner, startedAt, fastPath = false, playImmediately = false) {
+    activeCpuPlusSearch = null;
+    cpuPlusLatestProgress = null;
+    const minimum = playImmediately ? 0 : fastPath ? 1000 : state.timedGame ? CPUPlus.MOVE_MIN_MS : 1000;
     const delay = Math.max(0, minimum - (performance.now() - startedAt));
     scheduledTimer = window.setTimeout(() => {
       if (state.finished || state.phase !== 'play' || state.currentOwner !== owner || cpuLevel(owner) !== 'cpuplus') return;
@@ -1191,7 +1229,30 @@
       finishCpuPlusResult({ move }, owner, startedAt, false);
       return;
     }
-    cpuWorker = new Worker('src/cpuplus-worker.js?v=20260714-4');
+
+    const policy = state.timedGame
+      ? {
+          maxDepth: CPUPlus.MAX_DEPTH,
+          maxTimeMs: CPUPlus.MOVE_SEARCH_MS,
+          minDepth: 0,
+          minTimeMs: 0,
+          stableDepths: CPUPlus.DEEP_STABLE_DEPTHS,
+          stopWhenStable: false,
+          hardMaxMs: CPUPlus.MOVE_HARD_MAX_MS
+        }
+      : {
+          maxDepth: CPUPlus.DEEP_MAX_DEPTH,
+          maxTimeMs: CPUPlus.DEEP_HARD_MAX_MS,
+          minDepth: CPUPlus.DEEP_MIN_DEPTH,
+          minTimeMs: CPUPlus.DEEP_MIN_MS,
+          stableDepths: CPUPlus.DEEP_STABLE_DEPTHS,
+          stopWhenStable: true,
+          hardMaxMs: CPUPlus.DEEP_HARD_MAX_MS
+        };
+
+    activeCpuPlusSearch = { owner, startedAt };
+    cpuPlusLatestProgress = null;
+    cpuWorker = new Worker('src/cpuplus-worker.js?v=20260714-5');
     cpuWorker.onmessage = (event) => {
       const worker = cpuWorker;
       cpuWorker = null;
@@ -1209,13 +1270,18 @@
       kind: 'move',
       owner,
       pieces: state.pieces,
-      maxDepth: CPUPlus.MAX_DEPTH,
-      maxTimeMs: CPUPlus.MOVE_SEARCH_MS
+      maxDepth: policy.maxDepth,
+      maxTimeMs: policy.maxTimeMs,
+      minDepth: policy.minDepth,
+      minTimeMs: policy.minTimeMs,
+      stableDepths: policy.stableDepths,
+      stopWhenStable: policy.stopWhenStable
     });
+    updateCpuPlusPlayNowButton();
     cpuDeadlineTimer = window.setTimeout(() => {
       clearCpuSearch();
       finishCpuPlusResult(null, owner, startedAt, false);
-    }, CPUPlus.MOVE_HARD_MAX_MS);
+    }, policy.hardMaxMs + 1000);
   }
 
   function scheduleCpuMove() {
@@ -1436,6 +1502,11 @@
   });
   elements.newGameButton.addEventListener('click', resetGame);
   elements.rulesButton.addEventListener('click', () => elements.rulesDialog.showModal());
+  window.addEventListener('exit-strategy:cpuplus-progress', (event) => {
+    if (!activeCpuPlusSearch) return;
+    cpuPlusLatestProgress = event.detail || null;
+    updateCpuPlusPlayNowButton();
+  });
 
   window.ExitStrategyRuntime = {
     queueReplaySetup,

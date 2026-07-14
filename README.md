@@ -34,6 +34,14 @@ Results are weighted by opponent strength:
 
 A CPU+ loss on time is excluded from placement learning. A protected reset is available in the options; only a SHA-256 password fingerprint is stored in the repository.
 
+### Trained starter profile
+
+A ready-to-import CPU+ profile is available with **14 learned placements and 43 recorded results**:
+
+[Download the trained CPU+ starter profile](downloads/cpuplus-trained-profile-2026-07-14.json)
+
+In the game, use **Restore backup** to import it, then choose **Merge** to add it to existing learning or **Replace** to use it alone. The same download is also available from the **CPU+ data** controls in the game.
+
 ## Timed games
 
 The optional timed mode gives each move one minute and each player 50 minutes total. The confirmation dialog does not stop the clock. A forced pass immediately consumes one minute from the passing player's total.

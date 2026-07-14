@@ -58,6 +58,18 @@ Each player has five numbered pawns and one Hunter.
 A player wins by either:
 
 - getting two numbered pawns out through the central exit; or
-- capturing three opposing numbered pawns with the Hunter.
+- using the Hunter to capture three opposing pawns.
 
-The game is drawn after two consecutive forced passes, the third occurrence of the same position, or 100 total turns.
+A numbered pawn moves horizontally or vertically as far as possible. It cannot stop early or capture. The central exit is intangible while crossing it; a pawn exits only when the exit is its forced final square.
+
+The Hunter moves exactly one square horizontally or vertically. It cannot enter the exit, land on a friendly pawn, or land on the opposing Hunter. It captures an opposing pawn by entering its square.
+
+The game is drawn after two consecutive forced passes, the third occurrence of the same position, or 100 turns.
+
+## Development
+
+```bash
+npm test
+```
+
+The site is static and deploys from `main` through GitHub Pages.

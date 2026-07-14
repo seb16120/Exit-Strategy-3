@@ -65,6 +65,32 @@
     return Boolean(phaseCard && /ANALYSIS/i.test(phaseCard.textContent));
   }
 
+  function rememberOriginalButton(button) {
+    if (button.dataset.analysisHelpCreated === '1' || button.dataset.analysisHelpOriginalText !== undefined) return;
+    button.dataset.analysisHelpOriginalText = button.textContent;
+    button.dataset.analysisHelpOriginalDisabled = button.disabled ? '1' : '0';
+    button.dataset.analysisHelpOriginalTitle = button.getAttribute('title') || '';
+    button.dataset.analysisHelpOriginalPopup = button.getAttribute('aria-haspopup') || '';
+  }
+
+  function restoreOriginalButton(button) {
+    if (button.dataset.analysisHelpCreated === '1') {
+      button.remove();
+      return;
+    }
+    if (button.dataset.analysisHelpOriginalText === undefined) return;
+    const originalText = button.dataset.analysisHelpOriginalText;
+    if (button.textContent !== originalText) button.textContent = originalText;
+    const originalDisabled = button.dataset.analysisHelpOriginalDisabled === '1';
+    if (button.disabled !== originalDisabled) button.disabled = originalDisabled;
+    const originalTitle = button.dataset.analysisHelpOriginalTitle || '';
+    if (originalTitle) button.setAttribute('title', originalTitle);
+    else button.removeAttribute('title');
+    const originalPopup = button.dataset.analysisHelpOriginalPopup || '';
+    if (originalPopup) button.setAttribute('aria-haspopup', originalPopup);
+    else button.removeAttribute('aria-haspopup');
+  }
+
   function installAnalysisHelpButton() {
     const analysisOpen = isAnalysisOpen();
     const header = document.querySelector('.site-header');
@@ -76,7 +102,7 @@
     });
 
     if (!analysisOpen) {
-      if (button?.dataset.analysisHelpCreated === '1') button.remove();
+      if (button) restoreOriginalButton(button);
       return;
     }
 
@@ -88,17 +114,19 @@
       const rules = document.querySelector('#rulesButton');
       const actions = rules?.parentElement?.classList.contains('header-actions') ? rules.parentElement : header;
       actions.insertBefore(button, rules || actions.firstChild);
+    } else {
+      rememberOriginalButton(button);
     }
 
-    button.disabled = false;
-    button.removeAttribute('disabled');
+    if (button.disabled) button.disabled = false;
     button.dataset.analysisHelp = '1';
-    button.textContent = 'Analysis help';
-    button.setAttribute('aria-haspopup', 'dialog');
-    button.title = 'Explain the analysis controls';
+    if (button.textContent !== 'Analysis help') button.textContent = 'Analysis help';
+    if (button.getAttribute('aria-haspopup') !== 'dialog') button.setAttribute('aria-haspopup', 'dialog');
+    if (button.title !== 'Explain the analysis controls') button.title = 'Explain the analysis controls';
     if (button.dataset.analysisHelpBound !== '1') {
       button.dataset.analysisHelpBound = '1';
       button.addEventListener('click', (event) => {
+        if (!isAnalysisOpen()) return;
         event.preventDefault();
         event.stopPropagation();
         const dialog = helpDialog();

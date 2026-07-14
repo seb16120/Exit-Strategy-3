@@ -91,8 +91,8 @@
   }
 
   function isCpuDuelVisible() {
-    const cpuControls = document.querySelector('#cpuControls');
-    return Boolean(sidePanel && cpuControls && !sidePanel.hidden && !cpuControls.hidden);
+    const playVisible = Boolean(sidePanel && !sidePanel.hidden && phaseCard?.textContent.includes('CURRENT TURN'));
+    return playVisible && !document.body.classList.contains('analysis-mode');
   }
 
   function syncResponsiveLayout() {

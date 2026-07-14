@@ -170,12 +170,26 @@
     if (analysis.active || !phaseCard?.textContent.includes('CURRENT TURN') || boardFrame?.hidden || sidePanel?.hidden) return;
     const entries = Array.from(historyList?.children || []).map((item) => item.textContent.trim());
     if (entries.length !== 0) return;
+
+    const config = deriveConfig();
+    const initial = initialSnapshot();
+    const previousInitial = currentRecord?.timeline?.[0];
+    const sameInitialPosition = Boolean(previousInitial) &&
+      Game.serializePosition(previousInitial.pieces, 'cyan') === Game.serializePosition(initial.pieces, 'cyan');
+    const sameConfig = Boolean(currentRecord) && JSON.stringify(currentRecord.config) === JSON.stringify(config);
+    const sameOpenRecord = Boolean(currentRecord) &&
+      !currentRecord.result &&
+      currentRecord.entries.length === 0 &&
+      sameInitialPosition &&
+      sameConfig;
+    if (sameOpenRecord) return;
+
     currentRecord = {
       format: FORMAT_PGN,
       version: 1,
       createdAt: new Date().toISOString(),
-      config: deriveConfig(),
-      timeline: [initialSnapshot()],
+      config,
+      timeline: [initial],
       entries: [],
       result: null
     };
@@ -448,6 +462,7 @@
   }
 
   function relaunchConfig(config) {
+    currentRecord = null;
     stopAutomaticSeries();
     originalReset();
     setTimedChoice(config.timed);
@@ -915,6 +930,8 @@
   }
 
   document.addEventListener('click', (event) => {
+    const launchTarget = event.target.closest?.('#startCpuDuelButton, #localModeButton, #cpu1ModeButton, #cpu3ModeButton, #cpuPlusModeButton');
+    if (launchTarget) currentRecord = null;
     if (event.target.closest?.('#startCpuDuelButton')) {
       pendingLaunch = {
         automatic: Boolean($('#autoChainGamesChoice')?.checked),

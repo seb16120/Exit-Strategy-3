@@ -1,0 +1,30 @@
+name: Apply best sequence freeze fix
+
+on:
+  push:
+    branches:
+      - batch/fix-best-sequence-freeze
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: batch/fix-best-sequence-freeze
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/apply-best-sequence-freeze-fix.js
+      - run: node --test
+      - name: Commit fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: prevent best sequence render loop"
+          git push origin HEAD:batch/fix-best-sequence-freeze

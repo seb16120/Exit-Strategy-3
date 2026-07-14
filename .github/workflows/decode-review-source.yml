@@ -1,0 +1,38 @@
+name: Decode review source
+
+on:
+  push:
+    branches:
+      - batch/fix-human-layout-review-record
+
+permissions:
+  contents: write
+
+jobs:
+  decode:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: batch/fix-human-layout-review-record
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Decode payload
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const zlib = require('node:zlib');
+          const payload = fs.readFileSync('src/game-review-tools.payload', 'utf8').trim();
+          const source = zlib.gunzipSync(Buffer.from(payload, 'base64')).toString('utf8');
+          fs.writeFileSync('src/game-review-tools.source.js', source);
+          NODE
+      - name: Commit decoded source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/game-review-tools.source.js
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: materialize game review source"
+          git push origin HEAD:batch/fix-human-layout-review-record

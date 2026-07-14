@@ -1,0 +1,128 @@
+{
+  "format": "exit-strategy-3-cpuplus-learning",
+  "schemaVersion": 1,
+  "exportedAt": "2026-07-14T15:46:01.518Z",
+  "database": {
+    "version": 1,
+    "placements": {
+      "first|H:A3|P:B2,B5,C1,C3,C6": {
+        "weightedScore": 0.5,
+        "weightedGames": 1.1600000000000001,
+        "rawGames": 2,
+        "wins": 1,
+        "draws": 0,
+        "losses": 1
+      },
+      "first|H:A3|P:B2,B6,C1,C3,C5": {
+        "weightedScore": 14.020000000000001,
+        "weightedGames": 14.680000000000001,
+        "rawGames": 21,
+        "wins": 20,
+        "draws": 0,
+        "losses": 1
+      },
+      "first|H:A4|P:B2,B5,C1,C3,C6": {
+        "weightedScore": 0.66,
+        "weightedGames": 0.66,
+        "rawGames": 1,
+        "wins": 1,
+        "draws": 0,
+        "losses": 0
+      },
+      "first|H:A4|P:B2,B6,C1,C3,C5": {
+        "weightedScore": 0.66,
+        "weightedGames": 0.66,
+        "rawGames": 1,
+        "wins": 1,
+        "draws": 0,
+        "losses": 0
+      },
+      "first|H:A3|P:B2,C1,C3,C5,C6": {
+        "weightedScore": 0,
+        "weightedGames": 0.66,
+        "rawGames": 1,
+        "wins": 0,
+        "draws": 0,
+        "losses": 1
+      },
+      "first|H:A3|P:B2,B5,C1,C3,C5": {
+        "weightedScore": 0.66,
+        "weightedGames": 0.66,
+        "rawGames": 1,
+        "wins": 1,
+        "draws": 0,
+        "losses": 0
+      },
+      "second|H:A3|P:B2,B5,C1,C3,C6": {
+        "weightedScore": 5.41047619047619,
+        "weightedGames": 6.41047619047619,
+        "rawGames": 9,
+        "wins": 8,
+        "draws": 0,
+        "losses": 1
+      },
+      "second|H:A3|P:B2,B6,C1,C3,C5": {
+        "weightedScore": 1.32,
+        "weightedGames": 1.98,
+        "rawGames": 3,
+        "wins": 2,
+        "draws": 0,
+        "losses": 1
+      },
+      "second|H:A4|P:B2,B5,C1,C3,C6": {
+        "weightedScore": 0.66,
+        "weightedGames": 0.66,
+        "rawGames": 1,
+        "wins": 1,
+        "draws": 0,
+        "losses": 0
+      },
+      "second|H:A4|P:B2,B6,C1,C3,C5": {
+        "weightedScore": 0.66,
+        "weightedGames": 0.66,
+        "rawGames": 1,
+        "wins": 1,
+        "draws": 0,
+        "losses": 0
+      },
+      "second|H:A3|P:B2,C1,C3,C5,C6": {
+        "weightedScore": 0.66,
+        "weightedGames": 0.66,
+        "rawGames": 1,
+        "wins": 1,
+        "draws": 0,
+        "losses": 0
+      },
+      "first|H:A4|P:A2,B3,B6,C2,C5": {
+        "weightedScore": 0.33,
+        "weightedGames": 0.66,
+        "rawGames": 1,
+        "wins": 0,
+        "draws": 1,
+        "losses": 0
+      },
+      "first|H:A4|P:A3,B2,C1,C3,C5": {
+        "weightedScore": 0.66,
+        "weightedGames": 0.66,
+        "rawGames": 1,
+        "wins": 1,
+        "draws": 0,
+        "losses": 0
+      },
+      "second|H:A4|P:A3,B2,C1,C3,C5": {
+        "weightedScore": 0,
+        "weightedGames": 1,
+        "rawGames": 1,
+        "wins": 0,
+        "draws": 0,
+        "losses": 1
+      }
+    },
+    "human": {
+      "score": 2,
+      "games": 2
+    },
+    "updatedAt": "2026-07-14T15:44:39.411Z"
+  },
+  "checksum": "5621a357d4ee8d041609db1297ed2232a4a496349124fa85dca0d650b0c8c5e1"
+}

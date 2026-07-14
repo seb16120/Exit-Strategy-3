@@ -35,6 +35,7 @@
     cpuPauseButton: $('#cpuPauseButton'),
     cpuNextButton: $('#cpuNextButton'),
     gameActions: $('#gameActions'),
+    undoMoveButton: $('#undoMoveButton'),
     abandonButton: $('#abandonButton'),
     history: $('#history'),
     confirmMoves: $('#confirmMoves'),
@@ -74,6 +75,7 @@
   let cpuWorker = null;
   let clockInterval = null;
   let toastTimer = null;
+  let queuedReplayPieces = null;
 
   const state = {
     phase: 'mode',
@@ -102,6 +104,7 @@
     consecutivePasses: 0,
     repetitions: new Map(),
     history: [],
+    undoStack: [],
     pendingMove: null,
     confirmMoves: storedConfirm === null ? defaultConfirm : storedConfirm === 'true',
     showCoordinates: false,
@@ -111,6 +114,100 @@
 
   function dispatchLastMoveReset() {
     window.dispatchEvent(new Event('exit-strategy:reset-last-move'));
+  }
+
+  function cloneRuntimePieces(pieces) {
+    return pieces.map((piece) => ({ ...piece }));
+  }
+
+  function createUndoSnapshot() {
+    return {
+      pieces: cloneRuntimePieces(state.pieces),
+      currentOwner: state.currentOwner,
+      turnCount: state.turnCount,
+      playerTurns: { ...state.playerTurns },
+      consecutivePasses: state.consecutivePasses,
+      repetitions: Array.from(state.repetitions.entries()),
+      history: state.history.slice()
+    };
+  }
+
+  function restoreUndoSnapshot(snapshot) {
+    state.pieces = cloneRuntimePieces(snapshot.pieces);
+    state.currentOwner = snapshot.currentOwner;
+    state.turnCount = snapshot.turnCount;
+    state.playerTurns = { ...snapshot.playerTurns };
+    state.consecutivePasses = snapshot.consecutivePasses;
+    state.repetitions = new Map(snapshot.repetitions);
+    state.history = snapshot.history.slice();
+    state.selectedPieceId = null;
+    state.pendingMove = null;
+    state.cpuThinking = false;
+    state.finished = false;
+  }
+
+  function pushUndoSnapshot() {
+    if (state.phase === 'play' && !state.finished) state.undoStack.push(createUndoSnapshot());
+  }
+
+  function humanUndoIndex() {
+    if (!state.humanOwner) return -1;
+    for (let index = state.undoStack.length - 1; index >= 0; index -= 1) {
+      if (state.undoStack[index].currentOwner === state.humanOwner) return index;
+    }
+    return -1;
+  }
+
+  function canUndoHumanMove() {
+    return state.phase === 'play'
+      && !state.finished
+      && !state.timedGame
+      && state.mode !== 'local'
+      && state.mode !== 'cpu-duel'
+      && humanUndoIndex() >= 0;
+  }
+
+  function undoHumanMove() {
+    if (!canUndoHumanMove()) return false;
+    const index = humanUndoIndex();
+    const snapshot = state.undoStack[index];
+    const removedHalfMoves = state.history.length - snapshot.history.length;
+    clearScheduledAction();
+    restoreUndoSnapshot(snapshot);
+    state.undoStack = state.undoStack.slice(0, index);
+    dispatchLastMoveReset();
+    render();
+    showToast(removedHalfMoves > 1 ? 'Your move and the CPU reply were undone.' : 'Your move was undone.');
+    return true;
+  }
+
+  function queueReplaySetup(pieces) {
+    const candidate = cloneRuntimePieces(Array.isArray(pieces) ? pieces : []);
+    if (!Game.validateSetup('cyan', candidate) || !Game.validateSetup('magenta', candidate)) return false;
+    queuedReplayPieces = candidate;
+    return true;
+  }
+
+  function tryStartQueuedReplay() {
+    if (!queuedReplayPieces) return false;
+    const candidate = cloneRuntimePieces(queuedReplayPieces);
+    queuedReplayPieces = null;
+    if (!Game.validateSetup('cyan', candidate) || !Game.validateSetup('magenta', candidate)) return false;
+    state.pieces = candidate;
+    state.nextPawnNumber = { cyan: 6, magenta: 6 };
+    state.selectedPieceId = null;
+    state.setupOwner = null;
+    state.cpuThinking = false;
+    state.phase = 'handoff';
+    render();
+    showPassDialog(
+      'Same setups restored',
+      'Both starting formations from the previous game are ready.',
+      startPlay,
+      'Start game',
+      'READY TO PLAY'
+    );
+    return true;
   }
 
   function clearCpuSearch() {
@@ -230,6 +327,7 @@
     state.consecutivePasses = 0;
     state.repetitions = new Map();
     state.history = [];
+    state.undoStack = [];
     state.pendingMove = null;
     state.finished = false;
     Timer.reset(state.timer, state.timedGame);
@@ -290,6 +388,7 @@
     };
     state.cpuMatchPaused = false;
     state.cpuStepOnce = false;
+    if (tryStartQueuedReplay()) return;
     beginCpuSetup('cyan');
   }
 
@@ -562,11 +661,16 @@
       elements.cpuNextButton.disabled = !state.cpuMatchPaused || state.cpuThinking;
     }
     elements.gameActions.hidden = !hasHumanPlayer();
+    const showUndo = state.mode !== 'local' && state.mode !== 'cpu-duel' && !state.timedGame && Boolean(state.humanOwner);
+    elements.undoMoveButton.hidden = !showUndo;
+    elements.undoMoveButton.disabled = !canUndoHumanMove();
     elements.abandonButton.disabled = state.finished;
     renderLearningSummary();
     elements.history.innerHTML = '';
-    state.history.forEach((entry) => {
+    state.history.forEach((entry, index) => {
       const item = document.createElement('li');
+      item.classList.add(index % 2 === 0 ? 'history-cyan' : 'history-magenta');
+      item.dataset.owner = index % 2 === 0 ? 'cyan' : 'magenta';
       item.textContent = entry;
       elements.history.appendChild(item);
     });
@@ -611,11 +715,13 @@
       const level = cpuModeLevel();
       state.humanOwner = state.roleByPerson.human;
       state.cpuByOwner[state.roleByPerson.cpu] = level;
+      if (tryStartQueuedReplay()) return;
       if (isCpuOwner('cyan')) beginCpuSetup('cyan');
       else beginSetup('cyan');
       return;
     }
 
+    if (tryStartQueuedReplay()) return;
     state.phase = 'handoff';
     render();
     showPassDialog(
@@ -825,6 +931,7 @@
     state.consecutivePasses = 0;
     state.repetitions = new Map();
     state.history = [];
+    state.undoStack = [];
     state.finished = false;
     state.learningRecorded = false;
     for (const owner of ['cyan', 'magenta']) {
@@ -919,6 +1026,7 @@
     const piece = Game.getPiece(state.pieces, move.pieceId);
     if (!piece) return;
     const movingOwner = piece.owner;
+    pushUndoSnapshot();
     clearCpuSearch();
     commitTurnClock(movingOwner);
     const outcome = Game.applyMove(state.pieces, move);
@@ -1303,6 +1411,7 @@
   elements.lockSetupButton.addEventListener('click', lockSetup);
   elements.cpuPauseButton.addEventListener('click', toggleCpuPause);
   elements.cpuNextButton.addEventListener('click', playNextCpuMove);
+  elements.undoMoveButton.addEventListener('click', undoHumanMove);
   elements.abandonButton.addEventListener('click', openAbandonDialog);
   elements.abandonLoseButton.addEventListener('click', abandonGoingToLose);
   elements.abandonLeaveButton.addEventListener('click', abandonLeave);
@@ -1327,6 +1436,12 @@
   });
   elements.newGameButton.addEventListener('click', resetGame);
   elements.rulesButton.addEventListener('click', () => elements.rulesDialog.showModal());
+
+  window.ExitStrategyRuntime = {
+    queueReplaySetup,
+    canUndoHumanMove,
+    undoHumanMove
+  };
 
   createBoard();
   render();

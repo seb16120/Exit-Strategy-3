@@ -395,16 +395,30 @@
       existingSequence?.remove();
       return;
     }
+
     const text = depthText(cpuPlusProgress);
     if (!text) return;
     const node = existing || document.createElement('small');
     node.className = 'cpuplus-depth-status';
     if (node.textContent !== text) node.textContent = text;
     if (!existing) phaseCard.appendChild(node);
-    existingSequence?.remove();
+
     const startTurn = Number.parseInt(document.querySelector('#turnCounter')?.textContent || '0', 10) || 0;
     const sequence = createBestSequenceNode(cpuPlusProgress, startTurn);
-    if (sequence) phaseCard.appendChild(sequence);
+    if (!sequence) {
+      existingSequence?.remove();
+      return;
+    }
+
+    const signature = JSON.stringify({
+      completedDepth: cpuPlusProgress.completedDepth || 0,
+      startTurn,
+      principalVariation: cpuPlusProgress.principalVariation || []
+    });
+    if (existingSequence?.dataset.renderSignature === signature) return;
+    sequence.dataset.renderSignature = signature;
+    if (existingSequence) existingSequence.replaceWith(sequence);
+    else phaseCard.appendChild(sequence);
   }
 
   ensureBestSequenceOption();

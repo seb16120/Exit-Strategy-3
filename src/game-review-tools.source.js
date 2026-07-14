@@ -49,6 +49,10 @@
   style.textContent = `
     .result-main-actions,.result-share-actions,.analysis-actions{display:flex;gap:.65rem;flex-wrap:wrap;margin-top:1rem}
     .result-share-actions{padding-top:.85rem;border-top:1px solid var(--line)}
+    .result-replay-choice{display:flex;align-items:center;gap:.65rem;margin-top:.9rem;color:var(--muted)}
+    .result-replay-choice input{width:22px;height:22px;accent-color:var(--exit)}
+    .analysis-history button.history-cyan{background:rgba(53,217,199,.10)}
+    .analysis-history button.history-magenta{background:rgba(228,90,172,.10)}
     .analysis-card{display:grid;gap:.65rem}
     .analysis-card h2{font-size:1rem;margin:0}
     .analysis-actions>button{flex:1 1 9.5rem}
@@ -229,6 +233,15 @@
     if (!currentRecord) beginTracking();
     if (!currentRecord) return;
     const domEntries = Array.from(historyList?.children || []).map((item) => item.textContent.trim());
+    let commonLength = 0;
+    while (commonLength < currentRecord.entries.length
+      && commonLength < domEntries.length
+      && currentRecord.entries[commonLength] === domEntries[commonLength]) commonLength += 1;
+    if (commonLength < currentRecord.entries.length) {
+      currentRecord.entries = currentRecord.entries.slice(0, commonLength);
+      currentRecord.timeline = currentRecord.timeline.slice(0, commonLength + 1);
+      currentRecord.result = null;
+    }
     while (currentRecord.entries.length < domEntries.length) {
       const text = domEntries[currentRecord.entries.length];
       const previous = currentRecord.timeline[currentRecord.timeline.length - 1];
@@ -419,13 +432,18 @@
     analyze.textContent = 'Analyze game';
     main.appendChild(analyze);
 
+    const replay = document.createElement('label');
+    replay.className = 'result-replay-choice';
+    replay.innerHTML = '<input id="replaySameSetupChoice" type="checkbox"><span>Replay the same starting setups</span>';
+    main.insertAdjacentElement('afterend', replay);
+
     const share = document.createElement('div');
     share.className = 'result-share-actions';
     share.innerHTML = `
       <button id="copyResultPgnButton" class="text-button" type="button">Copy ES3-PGN</button>
       <button id="copyResultFenButton" class="text-button" type="button">Copy final ES3-FEN</button>
       <button id="pasteResultGameButton" class="text-button" type="button">Paste / import</button>`;
-    main.insertAdjacentElement('afterend', share);
+    replay.insertAdjacentElement('afterend', share);
 
     menu.addEventListener('click', returnToMenu);
     analyze.addEventListener('click', startAnalysisFromCurrentGame);
@@ -493,6 +511,11 @@
 
   function sameModeNewGame() {
     const config = currentRecord?.config || deriveConfig();
+    const replay = $('#replaySameSetupChoice')?.checked;
+    const initialPieces = currentRecord?.timeline?.[0]?.pieces;
+    if (replay && initialPieces && !window.ExitStrategyRuntime?.queueReplaySetup(initialPieces)) {
+      notify('The previous setups could not be restored; a normal new game will start.');
+    }
     relaunchConfig(config);
   }
 
@@ -660,6 +683,7 @@
       button.type = 'button';
       button.textContent = text;
       button.classList.toggle('active', index === analysis.index);
+      if (index > 0) button.classList.add(index % 2 === 1 ? 'history-cyan' : 'history-magenta');
       if (analysis.timeline[index]?.variation) button.classList.add('variation');
       button.addEventListener('click', () => {
         if (analysis.cpuThinking) return;
@@ -1007,6 +1031,8 @@
     if (resultDialog.open) {
       finishTracking();
       installResultButtons();
+      const replay = $('#replaySameSetupChoice');
+      if (replay) replay.checked = false;
     }
   }).observe(resultDialog, { attributes: true, attributeFilter: ['open'] });
   resultTitle && new MutationObserver(() => {

@@ -36,7 +36,7 @@ A CPU+ loss on time is excluded from placement learning. A protected reset is av
 
 ### Trained starter profile
 
-A ready-to-import CPU+ profile is available with **14 learned placements and 43 recorded results**:
+A ready-to-import CPU+ profile is available with **14 learned placements and 45 recorded results**:
 
 [Download the trained CPU+ starter profile](downloads/cpuplus-trained-profile-2026-07-14.json)
 

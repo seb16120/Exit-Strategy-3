@@ -219,8 +219,11 @@ h2 { margin-bottom: 12px; }
 .settings-card h2, .history-card h2 { font-size: 1rem; }
 .toggle-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; color: var(--muted); }
 .toggle-row input { width: 22px; height: 22px; accent-color: var(--exit); }
-.history { margin: 0; padding-left: 24px; max-height: 330px; overflow: auto; color: var(--muted); font-size: .86rem; }
-.history li { padding: 4px 0; }
+.game-action-buttons { display: flex; gap: 9px; flex-wrap: wrap; }
+.history { margin: 0; padding: 0; list-style: none; display: grid; gap: .28rem; max-height: 330px; overflow: auto; color: var(--muted); font-size: .86rem; }
+.history li { padding: .42rem .55rem; border-left: 3px solid transparent; border-radius: .5rem; }
+.history li.history-cyan { background: rgba(53, 217, 199, .10); border-left-color: var(--cyan); }
+.history li.history-magenta { background: rgba(228, 90, 172, .10); border-left-color: var(--magenta); }
 .history li:last-child { color: var(--text); }
 
 .modal {

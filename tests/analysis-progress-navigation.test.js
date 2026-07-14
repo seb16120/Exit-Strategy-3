@@ -28,6 +28,8 @@ test('progress UI uses fully evaluated wording and optional sequences', () => {
   assert.match(source, /Display the best sequence/);
   assert.match(source, /ExitStrategyCpuProgressUI/);
   assert.match(source, /Best depth-/);
+  assert.match(source, /renderSignature/);
+  assert.match(source, /existingSequence\.replaceWith/);
 });
 
 test('analysis shows CPU thinking and live depth progress', () => {
@@ -56,9 +58,36 @@ test('trained CPU+ starter profile is downloadable and keeps a valid checksum', 
   };
   const checksum = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
   assert.equal(profile.checksum, checksum);
-  assert.equal(Object.keys(profile.database.placements).length, 14);
-  assert.equal(Object.values(profile.database.placements).reduce((sum, stat) => sum + stat.rawGames, 0), 43);
+  const placements = Object.keys(profile.database.placements).length;
+  const games = Object.values(profile.database.placements).reduce((sum, stat) => sum + stat.rawGames, 0);
+  assert.ok(placements > 0);
+  assert.ok(games > 0);
   assert.match(source, /Download trained profile/);
   assert.match(source, /cpuplus-trained-profile-2026-07-14\.json/);
-  assert.match(read('README.md'), /Download the trained CPU\+ starter profile/);
+  assert.match(source, new RegExp(`${placements} placements and ${games} recorded results`));
+  const readme = read('README.md');
+  assert.match(readme, /Download the trained CPU\+ starter profile/);
+  assert.match(readme, new RegExp(`${placements} learned placements and ${games} recorded results`));
+});
+
+
+test('human versus CPU supports safe undo and replaying previous setups', () => {
+  const app = read('src/app-v2.js');
+  const review = read('src/game-review-tools.source.js');
+  assert.match(app, /undoHumanMove/);
+  assert.match(app, /queueReplaySetup/);
+  assert.match(app, /state\.undoStack/);
+  assert.match(review, /Replay the same starting setups/);
+  assert.match(review, /commonLength/);
+  assert.match(read('index.html'), /undoMoveButton/);
+});
+
+test('move history has one explicit move number and side-colored rows', () => {
+  const app = read('src/app-v2.js');
+  const styles = read('styles.css');
+  assert.match(app, /history-cyan/);
+  assert.match(app, /history-magenta/);
+  assert.match(styles, /list-style: none/);
+  assert.match(styles, /border-left-color: var\(--cyan\)/);
+  assert.match(styles, /border-left-color: var\(--magenta\)/);
 });

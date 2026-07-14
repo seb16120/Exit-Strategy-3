@@ -19,6 +19,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Escape generated template literals
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply-best-sequence-freeze-fix.js')
+          text = path.read_text()
+          text = text.replace('${state.personByOwner.cyan}', r'\${state.personByOwner.cyan}')
+          text = text.replace('${placements}', r'\${placements}')
+          text = text.replace('${games}', r'\${games}')
+          path.write_text(text)
+          PY
       - run: node scripts/apply-best-sequence-freeze-fix.js
       - run: node --test
       - name: Commit fixes
